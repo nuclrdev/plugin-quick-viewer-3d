@@ -1,0 +1,16 @@
+{
+	"schemaVersion": 1,
+	"name": "3D Model Quick Viewer",
+	"id": "dev.nuclr.plugin.core.quickviewer.3d",
+	"version": "1.0.0",
+	"description": "A quick viewer for 3D model files (FBX, OBJ, glTF/GLB, DAE, 3DS, PLY, STL) — displays mesh count, vertex/face totals, materials, bounding box, and texture references via Assimp.",
+	"author": "Nuclr Development Team",
+	"license": "Apache-2.0",
+	"website": "https://nuclr.dev",
+	"pageUrl": "https://nuclr.dev/plugins/core/3d-quick-viewer.html",
+	"docUrl": "https://nuclr.dev/plugins/core/3d-quick-viewer.html",
+	"type": "Official",
+	"quickViewProviders": [
+		"dev.nuclr.plugin.core.assimp.AssimpModelQuickViewProvider"
+	]
+}
