@@ -29,6 +29,23 @@ public class ModelStats {
     private float maxZ = -Float.MAX_VALUE;
     private boolean hasBoundingBox;
 
+    /**
+     * Bounding sphere centre and radius, derived from the AABB.
+     * Valid only when {@code hasBoundingBox == true}.
+     */
+    private float centerX, centerY, centerZ;
+    private float boundingRadius;
+
     /** Non-fatal warnings collected during parsing (missing textures, size limits, etc.). */
     private final List<String> warnings = new ArrayList<>();
+
+    /** Convenience: populate centre + radius from the already-set AABB fields. */
+    public void computeBoundingSphere() {
+        if (!hasBoundingBox) return;
+        centerX = (minX + maxX) * 0.5f;
+        centerY = (minY + maxY) * 0.5f;
+        centerZ = (minZ + maxZ) * 0.5f;
+        float dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
+        boundingRadius = (float) Math.sqrt(dx * dx + dy * dy + dz * dz) * 0.5f;
+    }
 }

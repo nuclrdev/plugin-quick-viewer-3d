@@ -69,7 +69,12 @@ public class AssimpModelQuickViewProvider implements QuickViewProvider {
     @Override
     public void unload() {
         close();
-        panel = null;
+        if (panel != null) {
+            // Dispose GL resources before the panel is dropped.
+            // Must be called on the EDT — the plugin framework guarantees this.
+            panel.disposeViewport();
+            panel = null;
+        }
     }
 
     @Override

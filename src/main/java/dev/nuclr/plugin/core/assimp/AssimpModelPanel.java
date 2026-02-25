@@ -1,176 +1,222 @@
 package dev.nuclr.plugin.core.assimp;
 
 import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Dimension;
 import java.awt.Font;
-import java.nio.IntBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.text.NumberFormat;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
-import javax.swing.BorderFactory;
-import javax.swing.Box;
-import javax.swing.BoxLayout;
-import javax.swing.JLabel;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.JTextArea;
-import javax.swing.SwingUtilities;
-
-import org.lwjgl.assimp.AIMaterial;
-import org.lwjgl.assimp.AIMesh;
-import org.lwjgl.assimp.AIScene;
-import org.lwjgl.assimp.AIString;
-import org.lwjgl.assimp.AIVector3D;
-import org.lwjgl.assimp.Assimp;
-import org.lwjgl.system.MemoryStack;
+import javax.swing.*;
 
 import dev.nuclr.plugin.QuickViewItem;
+import dev.nuclr.plugin.core.assimp.gl.ModelViewportCanvas;
+import dev.nuclr.plugin.core.assimp.model.ModelData;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * Swing panel that shows 3D model statistics extracted via Assimp.
+ * Main panel for the 3D quick-viewer plugin.
  *
- * <p>All Assimp / IO work runs on a virtual thread. The panel shows a
- * "Loading…" state immediately and is updated via {@code SwingUtilities.invokeLater}
- * once parsing completes.
+ * <h3>Layout</h3>
+ * <pre>
+ * ┌───────────────────────────────────┬──────────────────────┐
+ * │                                   │  filename (bold)     │
+ * │   ModelViewportCanvas             │  status label        │
+ * │   (interactive 3D viewport)       ├──────────────────────┤
+ * │                                   │  metadata text area  │
+ * │                                   │  (scrollable)        │
+ * ├───────────────────────────────────┴──────────────────────┤
+ * │  status bar  (Loading… / Ready / error)                  │
+ * └──────────────────────────────────────────────────────────┘
+ * </pre>
  *
- * <p>A generation counter prevents stale updates when the user switches files quickly.
+ * <h3>Threading</h3>
+ * <ul>
+ *   <li>Construction and all UI updates happen on the EDT.</li>
+ *   <li>Assimp parsing runs on a virtual thread.</li>
+ *   <li>GL upload happens on the EDT inside {@code ModelViewportCanvas.paintGL()}.</li>
+ * </ul>
+ *
+ * <h3>Keyboard shortcuts (viewport must have focus — click it first)</h3>
+ * {@code W} wireframe · {@code G} grid · {@code X} axes · {@code L} lit/unlit
+ * · {@code B} bounding box · {@code F} frame · {@code R} reset camera
  */
 @Slf4j
 public class AssimpModelPanel extends JPanel {
 
     // ── Constants ─────────────────────────────────────────────────────────────
 
-    private static final long MAX_FILE_BYTES    = 250L * 1024 * 1024; // 250 MB
-    private static final int  MAX_MESH_COUNT    = 10_000;
+    private static final int SIDEBAR_WIDTH = 280;
 
     private static final DateTimeFormatter TS_FMT =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                             .withZone(ZoneId.systemDefault());
 
-    private static final int[] TEXTURE_TYPES = {
-        Assimp.aiTextureType_DIFFUSE,
-        Assimp.aiTextureType_SPECULAR,
-        Assimp.aiTextureType_AMBIENT,
-        Assimp.aiTextureType_EMISSIVE,
-        Assimp.aiTextureType_HEIGHT,
-        Assimp.aiTextureType_NORMALS,
-        Assimp.aiTextureType_SHININESS,
-        Assimp.aiTextureType_DISPLACEMENT,
-        Assimp.aiTextureType_LIGHTMAP,
-        Assimp.aiTextureType_BASE_COLOR,
-        Assimp.aiTextureType_METALNESS,
-        Assimp.aiTextureType_DIFFUSE_ROUGHNESS,
-        Assimp.aiTextureType_AMBIENT_OCCLUSION,
-        Assimp.aiTextureType_UNKNOWN,
-    };
+    // ── Native availability (one-time check, shared) ───────────────────────────
 
-    // ── Native availability (lazy, thread-safe) ────────────────────────────────
+    private static volatile Boolean assimpAvailable;
 
-    private static volatile Boolean nativesAvailable;
-
-    private static synchronized boolean checkNatives() {
-        if (nativesAvailable == null) {
+    private static synchronized boolean checkAssimp() {
+        if (assimpAvailable == null) {
             try {
-                int major = Assimp.aiGetVersionMajor();
-                int minor = Assimp.aiGetVersionMinor();
-                int patch = Assimp.aiGetVersionRevision();
-                log.info("Assimp native library loaded successfully (version {}.{}.{})", major, minor, patch);
-                nativesAvailable = Boolean.TRUE;
+                int maj = org.lwjgl.assimp.Assimp.aiGetVersionMajor();
+                int min = org.lwjgl.assimp.Assimp.aiGetVersionMinor();
+                int pat = org.lwjgl.assimp.Assimp.aiGetVersionRevision();
+                log.info("Assimp {}.{}.{} native library available", maj, min, pat);
+                assimpAvailable = Boolean.TRUE;
             } catch (UnsatisfiedLinkError e) {
-                log.warn("Assimp native library not available: {}", e.getMessage());
-                nativesAvailable = Boolean.FALSE;
+                log.warn("Assimp native library unavailable: {}", e.getMessage());
+                assimpAvailable = Boolean.FALSE;
             }
         }
-        return nativesAvailable;
+        return assimpAvailable;
     }
 
     // ── State ─────────────────────────────────────────────────────────────────
 
-    /** Incremented on every new load; background tasks must match to update UI. */
+    /** Incremented on every load; stale background callbacks must be dropped. */
     private final AtomicLong generation = new AtomicLong(0);
 
     // ── UI components ─────────────────────────────────────────────────────────
 
-    private final JLabel   nameLabel;
-    private final JLabel   statusLabel;
+    private final JLabel    nameLabel;
+    private final JLabel    viewportStatusLabel;  // inside sidebar
     private final JTextArea statsArea;
+    private final JLabel    statusBar;            // bottom status
+
+    /** The live GL canvas; null when GL failed or not yet constructed. */
+    private ModelViewportCanvas viewport;
+
+    /** Substituted when GL init fails — shows the error and metadata. */
+    private JLabel glFallbackLabel;
+
+    /** The centre panel (BorderLayout CENTER) — swapped between viewport / loading label. */
+    private final JPanel centreHolder;
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
     public AssimpModelPanel() {
-        setLayout(new BorderLayout(0, 4));
-        setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        setLayout(new BorderLayout(0, 0));
 
+        // ── Sidebar ───────────────────────────────────────────────────────────
         nameLabel = new JLabel(" ");
         nameLabel.setFont(nameLabel.getFont().deriveFont(Font.BOLD, 13f));
+        nameLabel.setBorder(BorderFactory.createEmptyBorder(6, 8, 2, 8));
 
-        statusLabel = new JLabel("Ready");
-        statusLabel.setFont(statusLabel.getFont().deriveFont(11f));
-
-        JPanel headerPanel = new JPanel();
-        headerPanel.setLayout(new BoxLayout(headerPanel, BoxLayout.Y_AXIS));
-        headerPanel.setOpaque(false);
-        headerPanel.add(nameLabel);
-        headerPanel.add(Box.createVerticalStrut(2));
-        headerPanel.add(statusLabel);
-        add(headerPanel, BorderLayout.NORTH);
+        viewportStatusLabel = new JLabel("Ready");
+        viewportStatusLabel.setFont(viewportStatusLabel.getFont().deriveFont(11f));
+        viewportStatusLabel.setBorder(BorderFactory.createEmptyBorder(0, 8, 6, 8));
 
         statsArea = new JTextArea("No file selected.");
         statsArea.setEditable(false);
-        statsArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        statsArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
         statsArea.setOpaque(false);
         statsArea.setLineWrap(false);
+        statsArea.setFocusable(false);
 
-        JScrollPane scroll = new JScrollPane(statsArea,
+        JScrollPane statsScroll = new JScrollPane(statsArea,
                 JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
                 JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        scroll.setBorder(null);
-        scroll.setOpaque(false);
-        scroll.getViewport().setOpaque(false);
-        add(scroll, BorderLayout.CENTER);
+        statsScroll.setBorder(null);
+        statsScroll.setOpaque(false);
+        statsScroll.getViewport().setOpaque(false);
+
+        // Keyboard-hints label at the bottom of the sidebar
+        JLabel hintsLabel = new JLabel(
+                "<html><font color='#888888' size='2'>"
+                + "W wireframe &nbsp;G grid &nbsp;X axes<br>"
+                + "L lit &nbsp;B bbox &nbsp;F frame &nbsp;R reset<br>"
+                + "LMB rotate &nbsp;Shift+LMB / MMB pan<br>"
+                + "Scroll wheel zoom</font></html>");
+        hintsLabel.setBorder(BorderFactory.createEmptyBorder(4, 8, 6, 8));
+        hintsLabel.setFocusable(false);
+
+        JPanel sidebar = new JPanel(new BorderLayout(0, 0));
+        sidebar.setPreferredSize(new Dimension(SIDEBAR_WIDTH, 0));
+        sidebar.setBorder(BorderFactory.createMatteBorder(0, 1, 0, 0, new Color(60, 60, 60)));
+
+        JPanel sidebarHeader = new JPanel(new BorderLayout());
+        sidebarHeader.setOpaque(false);
+        sidebarHeader.add(nameLabel, BorderLayout.NORTH);
+        sidebarHeader.add(viewportStatusLabel, BorderLayout.SOUTH);
+
+        sidebar.add(sidebarHeader,  BorderLayout.NORTH);
+        sidebar.add(statsScroll,    BorderLayout.CENTER);
+        sidebar.add(hintsLabel,     BorderLayout.SOUTH);
+
+        add(sidebar, BorderLayout.EAST);
+
+        // ── Status bar ────────────────────────────────────────────────────────
+        statusBar = new JLabel(" ");
+        statusBar.setFont(statusBar.getFont().deriveFont(11f));
+        statusBar.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(60, 60, 60)),
+                BorderFactory.createEmptyBorder(2, 8, 2, 8)));
+        add(statusBar, BorderLayout.SOUTH);
+
+        // ── Centre holder ─────────────────────────────────────────────────────
+        centreHolder = new JPanel(new BorderLayout());
+        centreHolder.setBackground(new Color(33, 33, 35));
+
+        JLabel placeholderLabel = new JLabel("No file selected.",
+                SwingConstants.CENTER);
+        placeholderLabel.setForeground(new Color(160, 160, 160));
+        centreHolder.add(placeholderLabel, BorderLayout.CENTER);
+
+        add(centreHolder, BorderLayout.CENTER);
+
+        // ── Create the GL viewport (deferred until first use) ─────────────────
+        initViewport();
     }
 
     // ── Public API ────────────────────────────────────────────────────────────
 
     /**
-     * Starts an async load for {@code item}.  Returns {@code true} immediately;
-     * the panel updates itself on the EDT when parsing finishes.
+     * Starts an async load for {@code item}.
+     * Returns {@code true} immediately; the panel updates itself via
+     * {@code SwingUtilities.invokeLater} when parsing finishes.
      */
     public boolean load(QuickViewItem item, AtomicBoolean cancelled) {
         final long gen = generation.incrementAndGet();
 
-        // Show loading state immediately (safe to call from any thread)
         SwingUtilities.invokeLater(() -> {
             nameLabel.setText(item.name());
-            statusLabel.setText("Loading\u2026");
+            viewportStatusLabel.setText("Loading\u2026");
+            statusBar.setText("Parsing model\u2026");
             statsArea.setText("Parsing model data\u2026");
         });
 
         Thread.ofVirtual()
               .name("assimp-load-" + item.name())
               .start(() -> {
-                  ModelStats stats;
+                  ModelData data;
                   try {
-                      stats = parseModel(item, cancelled, gen);
+                      if (!checkAssimp()) {
+                          ModelStats s = new ModelStats();
+                          s.getWarnings().add("Assimp native library is not available.");
+                          data = new ModelData("Assimp unavailable.", s);
+                      } else {
+                          data = AssimpModelReader.read(item, cancelled);
+                      }
                   } catch (Exception e) {
-                      log.warn("Unexpected error parsing model '{}': {}", item.name(), e.getMessage(), e);
-                      stats = new ModelStats();
-                      stats.getWarnings().add("Parse error: " + e.getMessage());
+                      log.warn("Unexpected error parsing '{}'", item.name(), e);
+                      ModelStats s = new ModelStats();
+                      s.getWarnings().add("Unexpected error: " + e.getMessage());
+                      data = new ModelData(e.getMessage(), s);
                   }
 
-                  final ModelStats finalStats = stats;
+                  final ModelData finalData = data;
                   if (!cancelled.get() && generation.get() == gen) {
                       SwingUtilities.invokeLater(() -> {
                           if (!cancelled.get() && generation.get() == gen) {
-                              displayStats(item, finalStats);
+                              displayResult(item, finalData);
                           }
                       });
                   }
@@ -179,213 +225,129 @@ public class AssimpModelPanel extends JPanel {
         return true;
     }
 
-    /** Resets the panel to an empty state and cancels any in-flight load. */
+    /** Clears the panel and cancels any in-flight load. */
     public void clear() {
-        generation.incrementAndGet(); // invalidate pending loads before touching UI
+        generation.incrementAndGet();
         SwingUtilities.invokeLater(() -> {
             nameLabel.setText(" ");
-            statusLabel.setText("Ready");
+            viewportStatusLabel.setText("Ready");
+            statusBar.setText(" ");
             statsArea.setText("No file selected.");
+            if (viewport != null) viewport.setModelData(null);
         });
     }
 
-    // ── Background parsing ────────────────────────────────────────────────────
-
-    private ModelStats parseModel(QuickViewItem item, AtomicBoolean cancelled, long gen) {
-        ModelStats stats = new ModelStats();
-
-        if (!checkNatives()) {
-            stats.getWarnings().add("Assimp native library is not available on this platform.");
-            return stats;
+    /** Releases GL resources.  Must be called on the EDT. */
+    public void disposeViewport() {
+        if (viewport != null) {
+            viewport.dispose();
         }
+    }
 
-        Path filePath = item.path();
-        if (filePath == null) {
-            stats.getWarnings().add(
-                "Assimp requires a real file on disk; stream-only items are not supported.");
-            return stats;
-        }
+    // ── Private helpers ───────────────────────────────────────────────────────
 
-        long sizeBytes = item.sizeBytes();
-        if (sizeBytes > MAX_FILE_BYTES) {
-            stats.getWarnings().add(String.format(
-                "File too large (%.1f MB); limit is 250 MB. Parsing skipped.",
-                sizeBytes / 1_048_576.0));
-            return stats;
-        }
-
-        int flags = Assimp.aiProcess_Triangulate
-                  | Assimp.aiProcess_JoinIdenticalVertices
-                  | Assimp.aiProcess_SortByPType;
-
-        AIScene scene = Assimp.aiImportFile(filePath.toAbsolutePath().toString(), flags);
-        if (scene == null) {
-            String err = Assimp.aiGetErrorString();
-            stats.getWarnings().add(
-                "Could not import model: " + (err != null && !err.isBlank() ? err : "unknown error"));
-            return stats;
-        }
-
+    private void initViewport() {
         try {
-            if (!cancelled.get() && generation.get() == gen) {
-                extractStats(scene, stats, cancelled, gen);
-            }
-        } finally {
-            Assimp.aiReleaseImport(scene);
-        }
-
-        return stats;
-    }
-
-    private void extractStats(AIScene scene, ModelStats stats,
-                               AtomicBoolean cancelled, long gen) {
-        int meshCount = scene.mNumMeshes();
-        stats.setMeshCount(meshCount);
-        stats.setMaterialCount(scene.mNumMaterials());
-
-        boolean skipBBox = meshCount > MAX_MESH_COUNT;
-        if (skipBBox) {
-            stats.getWarnings().add(String.format(
-                "Mesh count (%,d) exceeds limit (%,d); bounding box skipped.",
-                meshCount, MAX_MESH_COUNT));
-        }
-
-        var meshBuf = scene.mMeshes();
-        if (meshBuf != null) {
-            for (int i = 0; i < meshCount; i++) {
-                if (cancelled.get() || generation.get() != gen) return;
-
-                AIMesh mesh = AIMesh.create(meshBuf.get(i));
-                stats.setTotalVertices(stats.getTotalVertices() + mesh.mNumVertices());
-                stats.setTotalFaces(stats.getTotalFaces() + mesh.mNumFaces());
-
-                if (!skipBBox) {
-                    computeBBox(mesh, stats);
-                }
-            }
-            if (!skipBBox && meshCount > 0
-                    && stats.getMinX() != Float.MAX_VALUE) {
-                stats.setHasBoundingBox(true);
-            }
-        }
-
-        var matBuf = scene.mMaterials();
-        if (matBuf != null) {
-            Set<String> seenPaths = new LinkedHashSet<>();
-            for (int i = 0; i < scene.mNumMaterials(); i++) {
-                if (cancelled.get() || generation.get() != gen) return;
-                AIMaterial mat = AIMaterial.create(matBuf.get(i));
-                extractTextures(mat, seenPaths);
-            }
-            stats.getTextures().addAll(seenPaths);
+            viewport = new ModelViewportCanvas(this::onGlError);
+            centreHolder.removeAll();
+            centreHolder.add(viewport, BorderLayout.CENTER);
+            centreHolder.revalidate();
+            centreHolder.repaint();
+        } catch (UnsatisfiedLinkError | Exception e) {
+            onGlError("3D preview unavailable (OpenGL init failed): " + e.getMessage());
         }
     }
 
-    private static void computeBBox(AIMesh mesh, ModelStats stats) {
-        AIVector3D.Buffer verts = mesh.mVertices();
-        if (verts == null) return;
+    /** Called on the EDT when the GL canvas reports an error. */
+    private void onGlError(String message) {
+        log.warn("ModelViewportCanvas error: {}", message);
+        viewport = null;
 
-        int n = mesh.mNumVertices();
-        for (int v = 0; v < n; v++) {
-            AIVector3D vtx = verts.get(v);
-            float x = vtx.x(), y = vtx.y(), z = vtx.z();
-            if (x < stats.getMinX()) stats.setMinX(x);
-            if (y < stats.getMinY()) stats.setMinY(y);
-            if (z < stats.getMinZ()) stats.setMinZ(z);
-            if (x > stats.getMaxX()) stats.setMaxX(x);
-            if (y > stats.getMaxY()) stats.setMaxY(y);
-            if (z > stats.getMaxZ()) stats.setMaxZ(z);
-        }
+        glFallbackLabel = new JLabel(
+                "<html><center><font color='#E07070'>"
+                + "3D preview unavailable<br><br>"
+                + "<font color='#AAAAAA'><small>" + escapeHtml(message) + "</small></font>"
+                + "</font></center></html>",
+                SwingConstants.CENTER);
+
+        centreHolder.removeAll();
+        centreHolder.add(glFallbackLabel, BorderLayout.CENTER);
+        centreHolder.revalidate();
+        centreHolder.repaint();
+
+        statusBar.setText("OpenGL unavailable — metadata only.");
     }
 
-    private static void extractTextures(AIMaterial mat, Set<String> seenPaths) {
-        for (int type : TEXTURE_TYPES) {
-            int count = Assimp.aiGetMaterialTextureCount(mat, type);
-            for (int j = 0; j < count; j++) {
-                try (MemoryStack stack = MemoryStack.stackPush()) {
-                    AIString pathStr = AIString.calloc(stack);
-                    int result = Assimp.aiGetMaterialTexture(mat, type, j, pathStr,
-                            (IntBuffer) null, null, null, null, null, null);
-                    if (result == Assimp.aiReturn_SUCCESS) {
-                        String tex = pathStr.dataString();
-                        if (tex != null && !tex.isBlank()) {
-                            seenPaths.add(tex);
-                        }
-                    }
-                }
-            }
-        }
-    }
+    private void displayResult(QuickViewItem item, ModelData data) {
+        boolean ok = !data.hasError();
 
-    // ── EDT display ───────────────────────────────────────────────────────────
+        viewportStatusLabel.setText(ok ? "Ready" : "Failed");
+        statusBar.setText(ok
+                ? (data.meshes.isEmpty() ? "Metadata only (model exceeds size limit)." : "Ready")
+                : "Error: " + data.error);
 
-    private void displayStats(QuickViewItem item, ModelStats stats) {
-        boolean failed = stats.getMeshCount() == 0 && !stats.getWarnings().isEmpty();
-        statusLabel.setText(failed ? "Failed" : "Ready");
-        nameLabel.setText(item.name());
-        statsArea.setText(formatStats(item, stats));
+        statsArea.setText(formatStats(item, data.stats));
         statsArea.setCaretPosition(0);
+
+        if (viewport != null) {
+            viewport.setModelData(data);
+        }
     }
+
+    // ── Stats formatting ──────────────────────────────────────────────────────
 
     private static String formatStats(QuickViewItem item, ModelStats stats) {
         NumberFormat nf  = NumberFormat.getIntegerInstance();
         StringBuilder sb = new StringBuilder(512);
-        String sep = "\u2500".repeat(40) + "\n"; // ─ × 40
+        String sep = "\u2500".repeat(32) + "\n";
 
-        // ── Model Statistics ─────────────────────────────────────────────────
         sb.append("Model Statistics\n").append(sep);
-        appendRow(sb, "Meshes",     nf.format(stats.getMeshCount()));
-        appendRow(sb, "Vertices",   nf.format(stats.getTotalVertices()));
-        appendRow(sb, "Faces",      nf.format(stats.getTotalFaces()));
-        appendRow(sb, "Materials",  nf.format(stats.getMaterialCount()));
-        appendRow(sb, "File Size",  formatSize(item.sizeBytes()));
+        row(sb, "Meshes",    nf.format(stats.getMeshCount()));
+        row(sb, "Vertices",  nf.format(stats.getTotalVertices()));
+        row(sb, "Faces",     nf.format(stats.getTotalFaces()));
+        row(sb, "Materials", nf.format(stats.getMaterialCount()));
+        row(sb, "File Size", formatSize(item.sizeBytes()));
 
-        Path filePath = item.path();
-        if (filePath != null) {
+        Path p = item.path();
+        if (p != null) {
             try {
-                FileTime ft = Files.getLastModifiedTime(filePath);
-                appendRow(sb, "Modified", TS_FMT.format(ft.toInstant()));
+                FileTime ft = Files.getLastModifiedTime(p);
+                row(sb, "Modified", TS_FMT.format(ft.toInstant()));
             } catch (Exception ignored) { /* best-effort */ }
         }
 
-        // ── Bounding Box ─────────────────────────────────────────────────────
         if (stats.isHasBoundingBox()) {
             sb.append("\nBounding Box\n").append(sep);
-            sb.append(String.format("  Min:   %10.4f, %10.4f, %10.4f%n",
+            sb.append(String.format("  Min  %9.3f %9.3f %9.3f%n",
                     stats.getMinX(), stats.getMinY(), stats.getMinZ()));
-            sb.append(String.format("  Max:   %10.4f, %10.4f, %10.4f%n",
+            sb.append(String.format("  Max  %9.3f %9.3f %9.3f%n",
                     stats.getMaxX(), stats.getMaxY(), stats.getMaxZ()));
-            sb.append(String.format("  Size:  %10.4f, %10.4f, %10.4f%n",
+            sb.append(String.format("  Size %9.3f %9.3f %9.3f%n",
                     stats.getMaxX() - stats.getMinX(),
                     stats.getMaxY() - stats.getMinY(),
                     stats.getMaxZ() - stats.getMinZ()));
+            sb.append(String.format("  Radius  %.4f%n", stats.getBoundingRadius()));
         }
 
-        // ── Textures ─────────────────────────────────────────────────────────
         List<String> textures = stats.getTextures();
         sb.append("\nTextures (").append(textures.size()).append(")\n").append(sep);
         if (textures.isEmpty()) {
             sb.append("  (none)\n");
         } else {
-            for (String tex : textures) {
-                sb.append("  ").append(tex).append("\n");
-            }
+            for (String t : textures) sb.append("  ").append(t).append('\n');
         }
 
-        // ── Warnings ─────────────────────────────────────────────────────────
         List<String> warnings = stats.getWarnings();
         if (!warnings.isEmpty()) {
             sb.append("\nWarnings\n").append(sep);
-            for (String w : warnings) {
-                sb.append("  \u26A0 ").append(w).append("\n");
-            }
+            for (String w : warnings) sb.append("  \u26A0 ").append(w).append('\n');
         }
 
         return sb.toString();
     }
 
-    private static void appendRow(StringBuilder sb, String key, String value) {
-        sb.append(String.format("%-16s  %s%n", key + ":", value));
+    private static void row(StringBuilder sb, String key, String val) {
+        sb.append(String.format("%-12s  %s%n", key + ":", val));
     }
 
     private static String formatSize(long bytes) {
@@ -394,5 +356,10 @@ public class AssimpModelPanel extends JPanel {
         if (bytes < 1_048_576)      return String.format("%.1f KB", bytes / 1_024.0);
         if (bytes < 1_073_741_824L) return String.format("%.2f MB", bytes / 1_048_576.0);
         return                             String.format("%.2f GB", bytes / 1_073_741_824.0);
+    }
+
+    private static String escapeHtml(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 }
