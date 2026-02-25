@@ -1,6 +1,8 @@
 package dev.nuclr.plugin.core.assimp.gl;
 
 import java.awt.Graphics;
+import java.awt.GraphicsConfiguration;
+import java.awt.geom.AffineTransform;
 import java.awt.event.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -311,8 +313,20 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
         }
 
         // ── Frame ─────────────────────────────────────────────────────────────
-        int w = Math.max(getWidth(),  1);
-        int h = Math.max(getHeight(), 1);
+        // On HiDPI displays (e.g. Windows 125% scaling), getWidth()/getHeight()
+        // return logical pixels while lwjgl3-awt's underlying HWND and the GL
+        // framebuffer are in physical pixels.  glViewport must use physical
+        // pixels, otherwise the scene renders only in the bottom-left corner.
+        int w = getWidth();
+        int h = getHeight();
+        GraphicsConfiguration gc = getGraphicsConfiguration();
+        if (gc != null) {
+            AffineTransform tx = gc.getDefaultTransform();
+            w = (int)(w * tx.getScaleX());
+            h = (int)(h * tx.getScaleY());
+        }
+        w = Math.max(w, 1);
+        h = Math.max(h, 1);
         camera.setAspect((float) w / h);
         GL11.glViewport(0, 0, w, h);
         GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
