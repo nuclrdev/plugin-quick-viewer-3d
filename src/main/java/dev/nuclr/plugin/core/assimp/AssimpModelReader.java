@@ -77,6 +77,16 @@ public final class AssimpModelReader {
         {0.84f, 0.68f, 0.84f}, // pink
     };
 
+    // ── Texture search subdirectories ────────────────────────────────────────
+    // Probed both under modelDir and one level above it.
+    // Ordered by likelihood; case variants are included for Linux filesystems.
+    private static final String[] TEX_SUBDIRS = {
+        "Textures", "textures",
+        "Texture",  "texture",
+        "Maps",     "maps",
+        "Material", "material",
+    };
+
     // ── Texture types to scan for texture-path extraction ─────────────────────
 
     private static final int[] TEXTURE_TYPES = {
@@ -264,9 +274,12 @@ public final class AssimpModelReader {
     // ── Texture helpers ───────────────────────────────────────────────────────
 
     /**
-     * Builds a per-material array of diffuse texture paths.
+     * Builds a per-material array of base-colour/diffuse texture paths.
      * Index corresponds to Assimp material index; value is {@code null} if
-     * the material has no diffuse texture.
+     * the material has no usable texture.
+     *
+     * <p>Tries {@code aiTextureType_DIFFUSE} first, then falls back to
+     * {@code aiTextureType_BASE_COLOR} (used by FBX PBR / glTF materials).
      */
     private static String[] buildMaterialTexturePaths(AIScene scene) {
         int matCount = scene.mNumMaterials();
@@ -274,18 +287,28 @@ public final class AssimpModelReader {
         var matBuf = scene.mMaterials();
         if (matBuf == null) return paths;
 
+        // Preference order: classic diffuse slot, then PBR base-colour slot.
+        int[] candidateTypes = {
+            Assimp.aiTextureType_DIFFUSE,
+            Assimp.aiTextureType_BASE_COLOR,
+        };
+
         for (int i = 0; i < matCount; i++) {
             AIMaterial mat = AIMaterial.create(matBuf.get(i));
-            int count = Assimp.aiGetMaterialTextureCount(mat, Assimp.aiTextureType_DIFFUSE);
-            if (count <= 0) continue;
-            try (MemoryStack stack = MemoryStack.stackPush()) {
-                AIString pathStr = AIString.calloc(stack);
-                int rc = Assimp.aiGetMaterialTexture(
-                        mat, Assimp.aiTextureType_DIFFUSE, 0, pathStr,
-                        (IntBuffer) null, null, null, null, null, null);
-                if (rc == Assimp.aiReturn_SUCCESS) {
-                    String tex = pathStr.dataString();
-                    if (tex != null && !tex.isBlank()) paths[i] = tex;
+            for (int type : candidateTypes) {
+                if (Assimp.aiGetMaterialTextureCount(mat, type) <= 0) continue;
+                try (MemoryStack stack = MemoryStack.stackPush()) {
+                    AIString pathStr = AIString.calloc(stack);
+                    int rc = Assimp.aiGetMaterialTexture(
+                            mat, type, 0, pathStr,
+                            (IntBuffer) null, null, null, null, null, null);
+                    if (rc == Assimp.aiReturn_SUCCESS) {
+                        String tex = pathStr.dataString();
+                        if (tex != null && !tex.isBlank()) {
+                            paths[i] = tex;
+                            break; // found — skip remaining candidate types
+                        }
+                    }
                 }
             }
         }
@@ -311,11 +334,60 @@ public final class AssimpModelReader {
                 log.warn("Failed to load embedded texture '{}': {}", path, e.getMessage());
             }
         } else {
-            try {
-                Path texPath = modelDir.resolve(path.replace('\\', '/'));
-                td = loadFileTexture(texPath);
-            } catch (Exception e) {
-                log.warn("Failed to load texture file '{}': {}", path, e.getMessage());
+            // Resolve path as stored in the file (may be relative or absolute).
+            // FBX files frequently embed absolute paths from the artist's machine.
+            // Build an ordered, deduplicated set of candidate locations to probe.
+            Path texPath  = modelDir.resolve(path.strip().replace('\\', '/'));
+            String fileName = texPath.getFileName().toString();
+            Path parentDir      = modelDir.getParent();                          // 1 level up
+            Path grandParentDir = parentDir != null ? parentDir.getParent() : null; // 2 levels up
+
+            Set<Path> candidates = new LinkedHashSet<>();
+
+            // 1. Exact path (works for relative paths and valid same-machine absolutes).
+            candidates.add(texPath);
+
+            // 2. Bare filename next to the model file.
+            candidates.add(modelDir.resolve(fileName));
+
+            // 3. Last two path components relative to modelDir
+            //    (e.g. "temp.fbm/texture_0.png" → modelDir/temp.fbm/texture_0.png).
+            //    Handles stale absolutes from another machine whose subfolder structure
+            //    was preserved alongside the FBX.
+            if (texPath.getNameCount() >= 2) {
+                candidates.add(modelDir.resolve(
+                        texPath.subpath(texPath.getNameCount() - 2, texPath.getNameCount())));
+            }
+
+            // 4–5. Common texture subfolders under the model directory and up to two
+            //      levels above it (covers typical asset-pack layouts where textures
+            //      live in a sibling folder of the model subfolder).
+            for (String sub : TEX_SUBDIRS) candidates.add(modelDir.resolve(sub).resolve(fileName));
+            if (parentDir != null) {
+                for (String sub : TEX_SUBDIRS) candidates.add(parentDir.resolve(sub).resolve(fileName));
+            }
+            if (grandParentDir != null) {
+                for (String sub : TEX_SUBDIRS) candidates.add(grandParentDir.resolve(sub).resolve(fileName));
+            }
+
+            Exception firstCause = null;
+            for (Path candidate : candidates) {
+                try {
+                    td = loadFileTexture(candidate);
+                } catch (Exception e) {
+                    if (firstCause == null) firstCause = e;
+                    continue;
+                }
+                if (td != null) {
+                    if (!candidate.equals(texPath))
+                        log.debug("Texture '{}' → found at: {}", path, candidate);
+                    break;
+                }
+            }
+
+            if (td == null) {
+                log.warn("Failed to load texture '{}': {}",
+                         path, firstCause != null ? firstCause.getMessage() : "ImageIO returned null");
             }
         }
 
