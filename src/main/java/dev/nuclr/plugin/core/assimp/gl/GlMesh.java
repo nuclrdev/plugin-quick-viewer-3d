@@ -4,7 +4,6 @@ import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL15;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
-import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 
 import dev.nuclr.plugin.core.assimp.model.MeshData;
@@ -14,13 +13,14 @@ import java.nio.IntBuffer;
 
 /**
  * GPU representation of a single mesh: one VAO, one interleaved VBO
- * (positions + normals), one IBO.
+ * (positions + normals + UVs), one IBO.
  *
- * <p>Interleaved layout per vertex (stride = 24 bytes = 6 floats):
+ * <p>Interleaved layout per vertex (stride = 32 bytes = 8 floats):
  * <pre>
- *   [px, py, pz,  nx, ny, nz]
- *    ↑ attrib 0   ↑ attrib 1
+ *   [px, py, pz,  nx, ny, nz,  u, v]
+ *    ↑ attrib 0   ↑ attrib 1   ↑ attrib 2
  * </pre>
+ * When the source mesh has no UV channel, {@code (0, 0)} is written for every vertex.
  *
  * <p>Must be created and closed while the GL context is current.
  */
@@ -33,11 +33,15 @@ public final class GlMesh implements AutoCloseable {
 
     public final float colorR, colorG, colorB;
 
+    /** Index into the texture list, or {@code -1} if this mesh has no texture. */
+    public final int textureIndex;
+
     public GlMesh(MeshData data) {
-        this.colorR     = data.colorR;
-        this.colorG     = data.colorG;
-        this.colorB     = data.colorB;
-        this.indexCount = data.indices.length;
+        this.colorR       = data.colorR;
+        this.colorG       = data.colorG;
+        this.colorB       = data.colorB;
+        this.textureIndex = data.textureIndex;
+        this.indexCount   = data.indices.length;
 
         vaoId = GL30.glGenVertexArrays();
         vboId = GL15.glGenBuffers();
@@ -45,14 +49,23 @@ public final class GlMesh implements AutoCloseable {
 
         GL30.glBindVertexArray(vaoId);
 
-        // ── Interleaved VBO (pos + normal) ────────────────────────────────────
+        // ── Interleaved VBO (pos + normal + uv) ───────────────────────────────
         int nv = data.numVertices;
-        FloatBuffer interleaved = MemoryUtil.memAllocFloat(nv * 6);
+        FloatBuffer interleaved = MemoryUtil.memAllocFloat(nv * 8);
         try {
             for (int v = 0; v < nv; v++) {
-                int b = v * 3;
-                interleaved.put(data.positions[b]).put(data.positions[b+1]).put(data.positions[b+2]);
-                interleaved.put(data.normals[b]  ).put(data.normals[b+1]  ).put(data.normals[b+2]  );
+                int b3 = v * 3;
+                int b2 = v * 2;
+                // position
+                interleaved.put(data.positions[b3]).put(data.positions[b3+1]).put(data.positions[b3+2]);
+                // normal
+                interleaved.put(data.normals[b3]).put(data.normals[b3+1]).put(data.normals[b3+2]);
+                // uv — (0,0) when no UV channel
+                if (data.uvs != null) {
+                    interleaved.put(data.uvs[b2]).put(data.uvs[b2+1]);
+                } else {
+                    interleaved.put(0f).put(0f);
+                }
             }
             interleaved.flip();
 
@@ -62,13 +75,16 @@ public final class GlMesh implements AutoCloseable {
             MemoryUtil.memFree(interleaved);
         }
 
-        int stride = 6 * Float.BYTES;
+        int stride = 8 * Float.BYTES; // 32 bytes per vertex
         // attrib 0 = position (vec3)
         GL20.glVertexAttribPointer(0, 3, GL11.GL_FLOAT, false, stride, 0L);
         GL20.glEnableVertexAttribArray(0);
         // attrib 1 = normal (vec3)
         GL20.glVertexAttribPointer(1, 3, GL11.GL_FLOAT, false, stride, 3L * Float.BYTES);
         GL20.glEnableVertexAttribArray(1);
+        // attrib 2 = UV (vec2)
+        GL20.glVertexAttribPointer(2, 2, GL11.GL_FLOAT, false, stride, 6L * Float.BYTES);
+        GL20.glEnableVertexAttribArray(2);
 
         // ── IBO ───────────────────────────────────────────────────────────────
         IntBuffer idxBuf = MemoryUtil.memAllocInt(data.indices.length);

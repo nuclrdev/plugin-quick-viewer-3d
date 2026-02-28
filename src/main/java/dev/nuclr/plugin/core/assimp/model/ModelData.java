@@ -23,6 +23,13 @@ public final class ModelData {
     /** Per-mesh GPU-ready buffers; empty on error. */
     public final List<MeshData> meshes;
 
+    /**
+     * Decoded diffuse textures referenced by meshes via {@link MeshData#textureIndex}.
+     * An entry may be {@code null} if the texture failed to load (the corresponding
+     * mesh falls back to its palette colour).  Empty on error.
+     */
+    public final List<TextureData> textures;
+
     /** Bounding-sphere centre — used to position the orbit-camera target. */
     public final float centerX, centerY, centerZ;
 
@@ -33,12 +40,13 @@ public final class ModelData {
     public final float boundingRadius;
 
     /** Success path. */
-    public ModelData(ModelStats stats, List<MeshData> meshes,
+    public ModelData(ModelStats stats, List<MeshData> meshes, List<TextureData> textures,
                      float centerX, float centerY, float centerZ,
                      float boundingRadius) {
         this.error          = null;
         this.stats          = stats;
         this.meshes         = Collections.unmodifiableList(meshes);
+        this.textures       = Collections.unmodifiableList(textures);
         this.centerX        = centerX;
         this.centerY        = centerY;
         this.centerZ        = centerZ;
@@ -50,6 +58,7 @@ public final class ModelData {
         this.error          = error;
         this.stats          = stats;
         this.meshes         = List.of();
+        this.textures       = List.of();
         this.centerX        = 0;
         this.centerY        = 0;
         this.centerZ        = 0;

@@ -10,6 +10,8 @@ package dev.nuclr.plugin.core.assimp.model;
  * <ul>
  *   <li>{@code positions} — interleaved x,y,z  (length = numVertices × 3)</li>
  *   <li>{@code normals}   — interleaved nx,ny,nz (length = numVertices × 3)</li>
+ *   <li>{@code uvs}       — interleaved u,v (length = numVertices × 2), or {@code null}
+ *                           if the mesh has no UV channel</li>
  *   <li>{@code indices}   — triangle index triples (length = numFaces × 3)</li>
  * </ul>
  */
@@ -17,6 +19,8 @@ public final class MeshData {
 
     public final float[] positions;   // vec3 per vertex
     public final float[] normals;     // vec3 per vertex
+    /** UV coordinates (vec2 per vertex), or {@code null} if no UV channel. */
+    public final float[] uvs;         // vec2 per vertex, or null
     public final int[]   indices;     // 3 indices per triangle face
 
     public final int numVertices;
@@ -25,16 +29,25 @@ public final class MeshData {
     /** Display colour assigned from a palette (r, g, b in [0,1]). */
     public final float colorR, colorG, colorB;
 
-    public MeshData(float[] positions, float[] normals, int[] indices,
+    /**
+     * Index into {@link ModelData#textures}, or {@code -1} if this mesh has
+     * no diffuse texture (falls back to the palette colour).
+     */
+    public final int textureIndex;
+
+    public MeshData(float[] positions, float[] normals, float[] uvs, int[] indices,
                     int numVertices, int numFaces,
-                    float colorR, float colorG, float colorB) {
-        this.positions   = positions;
-        this.normals     = normals;
-        this.indices     = indices;
-        this.numVertices = numVertices;
-        this.numFaces    = numFaces;
-        this.colorR      = colorR;
-        this.colorG      = colorG;
-        this.colorB      = colorB;
+                    float colorR, float colorG, float colorB,
+                    int textureIndex) {
+        this.positions    = positions;
+        this.normals      = normals;
+        this.uvs          = uvs;
+        this.indices      = indices;
+        this.numVertices  = numVertices;
+        this.numFaces     = numFaces;
+        this.colorR       = colorR;
+        this.colorG       = colorG;
+        this.colorB       = colorB;
+        this.textureIndex = textureIndex;
     }
 }

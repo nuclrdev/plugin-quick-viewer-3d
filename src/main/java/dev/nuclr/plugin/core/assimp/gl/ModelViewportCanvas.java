@@ -19,6 +19,7 @@ import org.lwjgl.opengl.awt.GLData;
 
 import dev.nuclr.plugin.core.assimp.model.ModelData;
 import dev.nuclr.plugin.core.assimp.model.MeshData;
+import dev.nuclr.plugin.core.assimp.model.TextureData;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -38,7 +39,7 @@ import lombok.extern.slf4j.Slf4j;
  * </ol>
  *
  * <h3>Keyboard shortcuts (click the viewport first to grab focus)</h3>
- * W wireframe · G grid · X axes · L lit/unlit · B bounding box ·
+ * T textures · W wireframe · G grid · X axes · L lit/unlit · B bounding box ·
  * F frame model · R reset camera
  */
 @Slf4j
@@ -50,36 +51,48 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
         "#version 330 core\n"
         + "layout(location = 0) in vec3 aPos;\n"
         + "layout(location = 1) in vec3 aNormal;\n"
+        + "layout(location = 2) in vec2 aTexCoord;\n"
         + "uniform mat4 uMVP;\n"
         + "out vec3 vNormal;\n"
+        + "out vec2 vTexCoord;\n"
         + "void main() {\n"
         + "    vNormal     = aNormal;\n"
+        + "    vTexCoord   = aTexCoord;\n"
         + "    gl_Position = uMVP * vec4(aPos, 1.0);\n"
         + "}\n";
 
     /**
      * Two-sided Lambert: {@code abs(dot(n,L))} so models with inverted normals
      * still appear lit.  Toggle with the L key.
+     * When {@code uHasTexture != 0} the diffuse texture is sampled instead of
+     * the flat palette colour.  Toggle textures with the T key.
      */
     private static final String MODEL_FRAG =
         "#version 330 core\n"
-        + "in  vec3 vNormal;\n"
-        + "uniform vec3 uColor;\n"
-        + "uniform int  uLit;\n"
+        + "in  vec3      vNormal;\n"
+        + "in  vec2      vTexCoord;\n"
+        + "uniform vec3      uColor;\n"
+        + "uniform int       uLit;\n"
+        + "uniform int       uHasTexture;\n"
+        + "uniform sampler2D uTexture;\n"
         + "out vec4 FragColor;\n"
         + "void main() {\n"
+        + "    vec3 base = (uHasTexture != 0)\n"
+        + "                ? texture(uTexture, vTexCoord).rgb\n"
+        + "                : uColor;\n"
         + "    if (uLit != 0) {\n"
         + "        vec3  L    = normalize(vec3(0.5, 1.0, 0.8));\n"
         + "        float diff = abs(dot(normalize(vNormal), L));\n"
         + "        float amb  = 0.25;\n"
-        + "        FragColor  = vec4(uColor * (amb + (1.0 - amb) * diff), 1.0);\n"
+        + "        FragColor  = vec4(base * (amb + (1.0 - amb) * diff), 1.0);\n"
         + "    } else {\n"
-        + "        FragColor = vec4(uColor, 1.0);\n"
+        + "        FragColor = vec4(base, 1.0);\n"
         + "    }\n"
         + "}\n";
 
     // ── Viewport toggles ──────────────────────────────────────────────────────
 
+    private boolean showTextures  = true;
     private boolean showWireframe = false;
     private boolean showGrid      = true;
     private boolean showAxes      = true;
@@ -97,10 +110,11 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
 
     // ── GL resources ──────────────────────────────────────────────────────────
 
-    private ShaderProgram      modelShader;
-    private GridRenderer       gridRenderer;
-    private final List<GlMesh> glMeshes = new ArrayList<>();
-    private boolean            glReady  = false;
+    private ShaderProgram         modelShader;
+    private GridRenderer          gridRenderer;
+    private final List<GlMesh>    glMeshes    = new ArrayList<>();
+    private final List<GlTexture> glTextures  = new ArrayList<>();
+    private boolean               glReady     = false;
 
     // ── Model data ────────────────────────────────────────────────────────────
 
@@ -281,6 +295,10 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
             modelShader  = new ShaderProgram(MODEL_VERT, MODEL_FRAG);
             gridRenderer = new GridRenderer();
 
+            // Bind uTexture to texture unit 0 (once, never changes).
+            modelShader.use();
+            modelShader.setInt("uTexture", 0);
+
             glReady = true;
             log.info("ModelViewportCanvas GL ready — renderer: {}  version: {}",
                      GL11.glGetString(GL11.GL_RENDERER),
@@ -308,8 +326,8 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
             pendingModel = null;       // consume before upload so re-entry is safe
             currentModel = snap;
             uploadModel(snap);
-            log.info("ModelViewportCanvas: {} mesh(es) uploaded ({} errors)",
-                     glMeshes.size(), snap.meshes.size() - glMeshes.size());
+            log.info("ModelViewportCanvas: {} mesh(es) / {} texture(s) uploaded",
+                     glMeshes.size(), glTextures.size());
         }
 
         // ── Frame ─────────────────────────────────────────────────────────────
@@ -358,6 +376,7 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
 
             for (GlMesh mesh : glMeshes) {
                 if (showWireframe) {
+                    modelShader.setInt("uHasTexture", 0);
                     modelShader.setVec3("uColor",
                             mesh.colorR * 0.45f,
                             mesh.colorG * 0.45f,
@@ -368,9 +387,24 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
                     mesh.drawWireframe();
                     modelShader.setInt("uLit", litMode ? 1 : 0);
                 } else {
-                    modelShader.setVec3("uColor",
-                            mesh.colorR, mesh.colorG, mesh.colorB);
+                    // Use texture when enabled, available, and successfully uploaded.
+                    boolean useTexture = showTextures
+                            && mesh.textureIndex >= 0
+                            && mesh.textureIndex < glTextures.size()
+                            && glTextures.get(mesh.textureIndex) != null;
+                    if (useTexture) {
+                        glTextures.get(mesh.textureIndex).bind(0);
+                        modelShader.setInt("uHasTexture", 1);
+                    } else {
+                        modelShader.setInt("uHasTexture", 0);
+                        modelShader.setVec3("uColor", mesh.colorR, mesh.colorG, mesh.colorB);
+                    }
                     mesh.draw();
+                    if (useTexture) {
+                        // Unbind so other draw calls don't accidentally sample this texture.
+                        GL13.glActiveTexture(GL13.GL_TEXTURE0);
+                        GL11.glBindTexture(GL11.GL_TEXTURE_2D, 0);
+                    }
                 }
             }
         }
@@ -420,6 +454,7 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
         addKeyListener(new KeyAdapter() {
             @Override public void keyTyped(KeyEvent e) {
                 switch (e.getKeyChar()) {
+                    case 't','T' -> { showTextures  = !showTextures;  dirty = true; }
                     case 'w','W' -> { showWireframe = !showWireframe; dirty = true; }
                     case 'g','G' -> { showGrid      = !showGrid;      dirty = true; }
                     case 'x','X' -> { showAxes      = !showAxes;      dirty = true; }
@@ -446,6 +481,17 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
     private void uploadModel(ModelData data) {
         disposeGlMeshes();
         if (data == null || data.hasError()) return;
+
+        // Upload textures first so mesh textureIndex references are valid.
+        for (TextureData td : data.textures) {
+            try {
+                glTextures.add(new GlTexture(td));
+            } catch (Exception ex) {
+                log.warn("Failed to upload texture: {}", ex.getMessage(), ex);
+                glTextures.add(null); // keep list indices aligned with ModelData.textures
+            }
+        }
+
         for (MeshData md : data.meshes) {
             try {
                 glMeshes.add(new GlMesh(md));
@@ -458,6 +504,8 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
     private void disposeGlMeshes() {
         for (GlMesh m : glMeshes) m.close();
         glMeshes.clear();
+        for (GlTexture t : glTextures) { if (t != null) t.close(); }
+        glTextures.clear();
     }
 
     private void cleanupGlResources() {

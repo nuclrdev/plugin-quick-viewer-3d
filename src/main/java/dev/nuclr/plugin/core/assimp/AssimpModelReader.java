@@ -1,23 +1,38 @@
 package dev.nuclr.plugin.core.assimp;
 
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import javax.imageio.ImageIO;
 
 import org.lwjgl.assimp.AIMaterial;
 import org.lwjgl.assimp.AIMesh;
 import org.lwjgl.assimp.AIScene;
 import org.lwjgl.assimp.AIString;
+import org.lwjgl.assimp.AITexel;
+import org.lwjgl.assimp.AITexture;
 import org.lwjgl.assimp.AIVector3D;
 import org.lwjgl.assimp.Assimp;
 import org.lwjgl.system.MemoryStack;
+import org.lwjgl.system.MemoryUtil;
 
 import dev.nuclr.plugin.QuickViewItem;
 import dev.nuclr.plugin.core.assimp.model.MeshData;
 import dev.nuclr.plugin.core.assimp.model.ModelData;
+import dev.nuclr.plugin.core.assimp.model.TextureData;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -34,6 +49,7 @@ import lombok.extern.slf4j.Slf4j;
  *   <li>Total vertices: 5 000 000</li>
  *   <li>Total indices: 15 000 000</li>
  *   <li>Mesh count: 10 000 (bounding-box skipped above this)</li>
+ *   <li>Texture dimensions: 4096 × 4096 (larger images are down-scaled)</li>
  * </ul>
  */
 @Slf4j
@@ -45,6 +61,7 @@ public final class AssimpModelReader {
     static final long MAX_VERTICES    = 5_000_000L;
     static final long MAX_INDICES     = 15_000_000L;
     static final int  MAX_MESH_COUNT  = 10_000;
+    private static final int MAX_TEX_DIM = 4096;
 
     // ── Mesh colour palette ───────────────────────────────────────────────────
 
@@ -89,7 +106,6 @@ public final class AssimpModelReader {
      *
      * @param item      item to import
      * @param cancelled token; returns early if set
-     * @param gen       generation counter; used by caller to detect stale results
      */
     public static ModelData read(QuickViewItem item, AtomicBoolean cancelled) {
         ModelStats stats = new ModelStats();
@@ -121,7 +137,9 @@ public final class AssimpModelReader {
         }
 
         try {
-            return buildModelData(scene, stats, cancelled);
+            Path modelDir = item.path().getParent();
+            if (modelDir == null) modelDir = item.path();
+            return buildModelData(scene, stats, cancelled, modelDir);
         } finally {
             Assimp.aiReleaseImport(scene); // always release native memory
         }
@@ -130,7 +148,7 @@ public final class AssimpModelReader {
     // ── Model data extraction ─────────────────────────────────────────────────
 
     private static ModelData buildModelData(AIScene scene, ModelStats stats,
-                                            AtomicBoolean cancelled) {
+                                            AtomicBoolean cancelled, Path modelDir) {
         int meshCount = scene.mNumMeshes();
         stats.setMeshCount(meshCount);
         stats.setMaterialCount(scene.mNumMaterials());
@@ -142,12 +160,19 @@ public final class AssimpModelReader {
                     meshCount, MAX_MESH_COUNT));
         }
 
+        // ── Pre-compute material → diffuse texture path ───────────────────────
+        String[] materialTexPaths = buildMaterialTexturePaths(scene);
+
+        // ── Texture loading state ─────────────────────────────────────────────
+        List<TextureData>    textures      = new ArrayList<>();
+        Map<String, Integer> texIndexByPath = new HashMap<>();
+
         // ── Per-mesh extraction ───────────────────────────────────────────────
-        List<MeshData> meshes    = new ArrayList<>(Math.min(meshCount, MAX_MESH_COUNT));
-        long totalVertices       = 0;
-        long totalIndices        = 0;
-        boolean vertexLimitHit   = false;
-        boolean indexLimitHit    = false;
+        List<MeshData> meshes       = new ArrayList<>(Math.min(meshCount, MAX_MESH_COUNT));
+        long totalVertices          = 0;
+        long totalIndices           = 0;
+        boolean vertexLimitHit      = false;
+        boolean indexLimitHit       = false;
 
         var meshBuf = scene.mMeshes();
         if (meshBuf != null) {
@@ -189,7 +214,17 @@ public final class AssimpModelReader {
                     continue;
                 }
 
-                MeshData md = extractMesh(aiMesh, nv, nf, i);
+                // Resolve diffuse texture for this mesh's material.
+                int matIdx       = aiMesh.mMaterialIndex();
+                String texPath   = (matIdx >= 0 && matIdx < materialTexPaths.length)
+                                   ? materialTexPaths[matIdx] : null;
+                int textureIndex = -1;
+                if (texPath != null) {
+                    textureIndex = resolveTexture(
+                            texPath, scene, modelDir, textures, texIndexByPath);
+                }
+
+                MeshData md = extractMesh(aiMesh, nv, nf, i, textureIndex);
                 if (md != null) {
                     meshes.add(md);
                 }
@@ -201,7 +236,7 @@ public final class AssimpModelReader {
             }
         }
 
-        // ── Material / texture extraction ─────────────────────────────────────
+        // ── Material / texture extraction (for stats display) ─────────────────
         var matBuf = scene.mMaterials();
         if (matBuf != null) {
             Set<String> seenPaths = new LinkedHashSet<>();
@@ -223,11 +258,168 @@ public final class AssimpModelReader {
             radius = 1f;
         }
 
-        return new ModelData(stats, meshes, cx, cy, cz, radius);
+        return new ModelData(stats, meshes, textures, cx, cy, cz, radius);
     }
 
-    /** Extracts positions, normals, and triangle indices into Java arrays. */
-    private static MeshData extractMesh(AIMesh aiMesh, int nv, int nf, int meshIndex) {
+    // ── Texture helpers ───────────────────────────────────────────────────────
+
+    /**
+     * Builds a per-material array of diffuse texture paths.
+     * Index corresponds to Assimp material index; value is {@code null} if
+     * the material has no diffuse texture.
+     */
+    private static String[] buildMaterialTexturePaths(AIScene scene) {
+        int matCount = scene.mNumMaterials();
+        String[] paths = new String[matCount];
+        var matBuf = scene.mMaterials();
+        if (matBuf == null) return paths;
+
+        for (int i = 0; i < matCount; i++) {
+            AIMaterial mat = AIMaterial.create(matBuf.get(i));
+            int count = Assimp.aiGetMaterialTextureCount(mat, Assimp.aiTextureType_DIFFUSE);
+            if (count <= 0) continue;
+            try (MemoryStack stack = MemoryStack.stackPush()) {
+                AIString pathStr = AIString.calloc(stack);
+                int rc = Assimp.aiGetMaterialTexture(
+                        mat, Assimp.aiTextureType_DIFFUSE, 0, pathStr,
+                        (IntBuffer) null, null, null, null, null, null);
+                if (rc == Assimp.aiReturn_SUCCESS) {
+                    String tex = pathStr.dataString();
+                    if (tex != null && !tex.isBlank()) paths[i] = tex;
+                }
+            }
+        }
+        return paths;
+    }
+
+    /**
+     * Returns the index of {@code path} in {@code textures}, loading it if
+     * not already cached.  Returns {@code -1} if loading fails.
+     */
+    private static int resolveTexture(String path, AIScene scene, Path modelDir,
+                                      List<TextureData> textures,
+                                      Map<String, Integer> texIndexByPath) {
+        if (texIndexByPath.containsKey(path)) return texIndexByPath.get(path);
+
+        TextureData td = null;
+        if (path.startsWith("*")) {
+            // Embedded texture — path is "*N" where N is the index.
+            try {
+                int embIdx = Integer.parseInt(path.substring(1));
+                td = loadEmbeddedTexture(scene, embIdx);
+            } catch (Exception e) {
+                log.warn("Failed to load embedded texture '{}': {}", path, e.getMessage());
+            }
+        } else {
+            try {
+                Path texPath = modelDir.resolve(path.replace('\\', '/'));
+                td = loadFileTexture(texPath);
+            } catch (Exception e) {
+                log.warn("Failed to load texture file '{}': {}", path, e.getMessage());
+            }
+        }
+
+        int idx;
+        if (td != null) {
+            idx = textures.size();
+            textures.add(td);
+        } else {
+            idx = -1;
+        }
+        texIndexByPath.put(path, idx);
+        return idx;
+    }
+
+    private static TextureData loadFileTexture(Path path) throws Exception {
+        BufferedImage img = ImageIO.read(path.toFile());
+        if (img == null) throw new IOException("ImageIO could not decode: " + path);
+        return decodeBufferedImage(img);
+    }
+
+    private static TextureData loadEmbeddedTexture(AIScene scene, int idx) throws Exception {
+        int numTextures = scene.mNumTextures();
+        if (idx < 0 || idx >= numTextures)
+            throw new IOException("Embedded texture index out of range: " + idx);
+        var texBuf = scene.mTextures();
+        if (texBuf == null) throw new IOException("Scene has no embedded textures");
+
+        AITexture tex = AITexture.create(texBuf.get(idx));
+
+        if (tex.mHeight() == 0) {
+            // Compressed image (PNG/JPG/…) — mWidth() is the byte count.
+            int byteCount = tex.mWidth();
+            ByteBuffer rawBuf = MemoryUtil.memByteBuffer(tex.pcData().address(), byteCount);
+            byte[] bytes = new byte[byteCount];
+            rawBuf.get(bytes);
+            BufferedImage img = ImageIO.read(new ByteArrayInputStream(bytes));
+            if (img == null)
+                throw new IOException("ImageIO could not decode embedded compressed texture " + idx);
+            return decodeBufferedImage(img);
+        } else {
+            // Uncompressed BGRA texels.
+            int w = tex.mWidth(), h = tex.mHeight();
+            AITexel.Buffer pcData = tex.pcData();
+            byte[] pixels = new byte[w * h * 4];
+            for (int row = 0; row < h; row++) {
+                int srcRow = h - 1 - row; // flip vertically
+                for (int col = 0; col < w; col++) {
+                    AITexel texel = pcData.get(srcRow * w + col);
+                    int base = (row * w + col) * 4;
+                    pixels[base]     = texel.r();
+                    pixels[base + 1] = texel.g();
+                    pixels[base + 2] = texel.b();
+                    pixels[base + 3] = texel.a();
+                }
+            }
+            return new TextureData(w, h, pixels);
+        }
+    }
+
+    /**
+     * Converts a {@link BufferedImage} to a bottom-row-first RGBA byte array
+     * suitable for {@code glTexImage2D}.  Caps dimensions at {@link #MAX_TEX_DIM}.
+     */
+    private static TextureData decodeBufferedImage(BufferedImage img) {
+        int w = img.getWidth();
+        int h = img.getHeight();
+
+        // Scale down if either dimension exceeds the limit.
+        if (w > MAX_TEX_DIM || h > MAX_TEX_DIM) {
+            float scale = Math.min((float) MAX_TEX_DIM / w, (float) MAX_TEX_DIM / h);
+            int nw = Math.max(1, (int)(w * scale));
+            int nh = Math.max(1, (int)(h * scale));
+            BufferedImage scaled = new BufferedImage(nw, nh, BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g2 = scaled.createGraphics();
+            g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                                RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g2.drawImage(img, 0, 0, nw, nh, null);
+            g2.dispose();
+            img = scaled;
+            w   = nw;
+            h   = nh;
+        }
+
+        // Extract RGBA bytes, flipping vertically (row 0 = bottom in OpenGL).
+        byte[] pixels = new byte[w * h * 4];
+        for (int row = 0; row < h; row++) {
+            int srcRow = h - 1 - row;
+            for (int col = 0; col < w; col++) {
+                int argb = img.getRGB(col, srcRow);
+                int base = (row * w + col) * 4;
+                pixels[base]     = (byte)((argb >> 16) & 0xFF); // R
+                pixels[base + 1] = (byte)((argb >>  8) & 0xFF); // G
+                pixels[base + 2] = (byte)( argb        & 0xFF); // B
+                pixels[base + 3] = (byte)((argb >> 24) & 0xFF); // A
+            }
+        }
+        return new TextureData(w, h, pixels);
+    }
+
+    // ── Mesh extraction ───────────────────────────────────────────────────────
+
+    /** Extracts positions, normals, UVs, and triangle indices into Java arrays. */
+    private static MeshData extractMesh(AIMesh aiMesh, int nv, int nf,
+                                        int meshIndex, int textureIndex) {
         AIVector3D.Buffer posBuf  = aiMesh.mVertices();
         AIVector3D.Buffer normBuf = aiMesh.mNormals();
 
@@ -254,6 +446,18 @@ public final class AssimpModelReader {
             }
         }
 
+        // UV channel 0 — Assimp uses vec3 for UVs; we only need x,y.
+        AIVector3D.Buffer uvBuf = aiMesh.mTextureCoords(0);
+        float[] uvs = null;
+        if (uvBuf != null) {
+            uvs = new float[nv * 2];
+            for (int v = 0; v < nv; v++) {
+                AIVector3D uv = uvBuf.get(v);
+                uvs[v * 2]     = uv.x();
+                uvs[v * 2 + 1] = uv.y();
+            }
+        }
+
         // Face indices — Assimp guarantees triangles after aiProcess_Triangulate.
         int[] indices  = new int[nf * 3];
         var   faceBuf  = aiMesh.mFaces();
@@ -268,8 +472,8 @@ public final class AssimpModelReader {
         }
 
         float[] col = PALETTE[meshIndex % PALETTE.length];
-        return new MeshData(positions, normals, indices, nv, nf,
-                            col[0], col[1], col[2]);
+        return new MeshData(positions, normals, uvs, indices, nv, nf,
+                            col[0], col[1], col[2], textureIndex);
     }
 
     private static void updateBBox(AIMesh mesh, ModelStats stats) {
