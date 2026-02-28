@@ -108,7 +108,8 @@ public final class AssimpModelReader {
         int flags = Assimp.aiProcess_Triangulate
                   | Assimp.aiProcess_JoinIdenticalVertices
                   | Assimp.aiProcess_SortByPType
-                  | Assimp.aiProcess_GenSmoothNormals; // no-op if normals present
+                  | Assimp.aiProcess_GenSmoothNormals  // no-op if normals present
+                  | Assimp.aiProcess_PreTransformVertices; // bake node transforms into vertex data
 
         AIScene scene = Assimp.aiImportFile(
                 item.path().toAbsolutePath().toString(), flags);
