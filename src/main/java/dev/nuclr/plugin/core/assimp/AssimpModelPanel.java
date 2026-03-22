@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import javax.swing.*;
 
-import dev.nuclr.plugin.QuickViewItem;
+import dev.nuclr.plugin.PluginPathResource;
 import dev.nuclr.plugin.core.assimp.gl.ModelViewportCanvas;
 import dev.nuclr.plugin.core.assimp.model.ModelData;
 import lombok.extern.slf4j.Slf4j;
@@ -183,18 +183,18 @@ public class AssimpModelPanel extends JPanel {
      * Returns {@code true} immediately; the panel updates itself via
      * {@code SwingUtilities.invokeLater} when parsing finishes.
      */
-    public boolean load(QuickViewItem item, AtomicBoolean cancelled) {
+    public boolean load(PluginPathResource item, AtomicBoolean cancelled) {
         final long gen = generation.incrementAndGet();
 
         SwingUtilities.invokeLater(() -> {
-            nameLabel.setText(item.name());
+            nameLabel.setText(item.getName());
             viewportStatusLabel.setText("Loading\u2026");
             statusBar.setText("Parsing model\u2026");
             statsArea.setText("Parsing model data\u2026");
         });
 
         Thread.ofVirtual()
-              .name("assimp-load-" + item.name())
+              .name("assimp-load-" + item.getName())
               .start(() -> {
                   ModelData data;
                   try {
@@ -206,7 +206,7 @@ public class AssimpModelPanel extends JPanel {
                           data = AssimpModelReader.read(item, cancelled);
                       }
                   } catch (Exception e) {
-                      log.warn("Unexpected error parsing '{}'", item.name(), e);
+                      log.warn("Unexpected error parsing '{}'", item.getName(), e);
                       ModelStats s = new ModelStats();
                       s.getWarnings().add("Unexpected error: " + e.getMessage());
                       data = new ModelData(e.getMessage(), s);
@@ -278,7 +278,7 @@ public class AssimpModelPanel extends JPanel {
         statusBar.setText("OpenGL unavailable — metadata only.");
     }
 
-    private void displayResult(QuickViewItem item, ModelData data) {
+    private void displayResult(PluginPathResource item, ModelData data) {
         boolean ok = !data.hasError();
 
         viewportStatusLabel.setText(ok ? "Ready" : "Failed");
@@ -296,7 +296,7 @@ public class AssimpModelPanel extends JPanel {
 
     // ── Stats formatting ──────────────────────────────────────────────────────
 
-    private static String formatStats(QuickViewItem item, ModelStats stats) {
+    private static String formatStats(PluginPathResource item, ModelStats stats) {
         NumberFormat nf  = NumberFormat.getIntegerInstance();
         StringBuilder sb = new StringBuilder(512);
         String sep = "\u2500".repeat(32) + "\n";
@@ -306,9 +306,9 @@ public class AssimpModelPanel extends JPanel {
         row(sb, "Vertices",  nf.format(stats.getTotalVertices()));
         row(sb, "Faces",     nf.format(stats.getTotalFaces()));
         row(sb, "Materials", nf.format(stats.getMaterialCount()));
-        row(sb, "File Size", formatSize(item.sizeBytes()));
+        row(sb, "File Size", formatSize(item.getSizeBytes()));
 
-        Path p = item.path();
+        Path p = item.getPath();
         if (p != null) {
             try {
                 FileTime ft = Files.getLastModifiedTime(p);

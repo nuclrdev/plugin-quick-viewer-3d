@@ -29,7 +29,7 @@ import org.lwjgl.assimp.Assimp;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 
-import dev.nuclr.plugin.QuickViewItem;
+import dev.nuclr.plugin.PluginPathResource;
 import dev.nuclr.plugin.core.assimp.model.MeshData;
 import dev.nuclr.plugin.core.assimp.model.ModelData;
 import dev.nuclr.plugin.core.assimp.model.TextureData;
@@ -117,14 +117,14 @@ public final class AssimpModelReader {
      * @param item      item to import
      * @param cancelled token; returns early if set
      */
-    public static ModelData read(QuickViewItem item, AtomicBoolean cancelled) {
+    public static ModelData read(PluginPathResource item, AtomicBoolean cancelled) {
         ModelStats stats = new ModelStats();
 
-        if (item.path() == null) {
+        if (item.getPath() == null) {
             return fail("Assimp requires a real file on disk; stream-only items are not supported.", stats);
         }
 
-        long sizeBytes = item.sizeBytes();
+        long sizeBytes = item.getSizeBytes();
         if (sizeBytes > MAX_FILE_BYTES) {
             return fail(String.format(
                     "File too large (%.1f MB); limit is 250 MB.",
@@ -138,7 +138,7 @@ public final class AssimpModelReader {
                   | Assimp.aiProcess_PreTransformVertices; // bake node transforms into vertex data
 
         AIScene scene = Assimp.aiImportFile(
-                item.path().toAbsolutePath().toString(), flags);
+                item.getPath().toAbsolutePath().toString(), flags);
 
         if (scene == null) {
             String err = Assimp.aiGetErrorString();
@@ -147,8 +147,8 @@ public final class AssimpModelReader {
         }
 
         try {
-            Path modelDir = item.path().getParent();
-            if (modelDir == null) modelDir = item.path();
+            Path modelDir = item.getPath().getParent();
+            if (modelDir == null) modelDir = item.getPath();
             return buildModelData(scene, stats, cancelled, modelDir);
         } finally {
             Assimp.aiReleaseImport(scene); // always release native memory
