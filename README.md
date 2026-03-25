@@ -2,7 +2,8 @@
 
 A [Nuclr Commander](https://nuclr.dev) plugin for quick, read-only inspection of 3D model files in the Quick View pane. It renders model stats, bounding-box data, texture references, and import warnings using [LWJGL Assimp](https://www.lwjgl.org/), with no external tools or network access required.
 
-![3D Model Quick Viewer screenshot](images/screenshot-1.jpg)
+![3D Model Quick Viewer screenshot 1](images/screenshot-1.jpg)
+![3D Model Quick Viewer screenshot 2](images/screenshot-2.jpg)
 
 ## ✨ What it shows
 
