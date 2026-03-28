@@ -193,7 +193,9 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
      */
     @Override
     public void removeNotify() {
-        if (removeNotifyCalled) { super.removeNotify(); return; }
+        if (removeNotifyCalled) {
+            return;
+        }
         removeNotifyCalled = true;
         renderTimer.stop();
         if (glReady) {
