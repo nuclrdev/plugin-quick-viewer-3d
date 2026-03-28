@@ -99,6 +99,7 @@ public class AssimpModelPanel extends JPanel {
 
     /** The centre panel (BorderLayout CENTER) — swapped between viewport / loading label. */
     private final JPanel centreHolder;
+    private final JLabel placeholderLabel;
 
     // ── Constructor ───────────────────────────────────────────────────────────
 
@@ -165,7 +166,7 @@ public class AssimpModelPanel extends JPanel {
         centreHolder = new JPanel(new BorderLayout());
         centreHolder.setBackground(new Color(33, 33, 35));
 
-        JLabel placeholderLabel = new JLabel("No file selected.",
+        placeholderLabel = new JLabel("No file selected.",
                 SwingConstants.CENTER);
         placeholderLabel.setForeground(new Color(160, 160, 160));
         centreHolder.add(placeholderLabel, BorderLayout.CENTER);
@@ -187,6 +188,7 @@ public class AssimpModelPanel extends JPanel {
         final long gen = generation.incrementAndGet();
 
         SwingUtilities.invokeLater(() -> {
+            ensureViewport();
             nameLabel.setText(item.getName());
             viewportStatusLabel.setText("Loading\u2026");
             statusBar.setText("Parsing model\u2026");
@@ -244,6 +246,27 @@ public class AssimpModelPanel extends JPanel {
         }
     }
 
+    public void closePreview() {
+        generation.incrementAndGet();
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::closePreview);
+            return;
+        }
+
+        if (viewport != null) {
+            viewport.setModelData(null);
+            viewport.dispose();
+            centreHolder.remove(viewport);
+            viewport = null;
+        } else {
+            centreHolder.removeAll();
+        }
+        glFallbackLabel = null;
+        showPlaceholder();
+        centreHolder.revalidate();
+        centreHolder.repaint();
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
 
     private void initViewport() {
@@ -255,6 +278,12 @@ public class AssimpModelPanel extends JPanel {
             centreHolder.repaint();
         } catch (UnsatisfiedLinkError | Exception e) {
             onGlError("3D preview unavailable (OpenGL init failed): " + e.getMessage());
+        }
+    }
+
+    private void ensureViewport() {
+        if (viewport == null) {
+            initViewport();
         }
     }
 
@@ -276,6 +305,11 @@ public class AssimpModelPanel extends JPanel {
         centreHolder.repaint();
 
         statusBar.setText("OpenGL unavailable — metadata only.");
+    }
+
+    private void showPlaceholder() {
+        centreHolder.removeAll();
+        centreHolder.add(placeholderLabel, BorderLayout.CENTER);
     }
 
     private void displayResult(PluginPathResource item, ModelData data) {

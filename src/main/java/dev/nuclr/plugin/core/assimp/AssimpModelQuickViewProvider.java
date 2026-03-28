@@ -101,7 +101,7 @@ public class AssimpModelQuickViewProvider implements QuickViewProviderPlugin {
             currentCancelled.set(true);
             currentCancelled = null;
         }
-        if (panel != null) panel.clear();
+        if (panel != null) panel.closePreview();
     }
 
     // ── FocusablePlugin ───────────────────────────────────────────────────────
