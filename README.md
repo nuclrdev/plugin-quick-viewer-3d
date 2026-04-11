@@ -43,7 +43,7 @@ Nuclr Commander verifies the RSA-SHA256 signature against `nuclr-cert.pem` on lo
 
 ## 🛠️ Building
 
-Prerequisites: `Java 21+`, `Maven 3.9+`, and a locally installed `plugins-sdk` (`mvn install` in `plugins-sdk/`).
+Prerequisites: `Java 21+`, `Maven 3.9+`, and a locally installed `platform-sdk` (`mvn install` in `platform-sdk/`).
 
 ```bash
 # Compile, test, package, and sign
@@ -129,7 +129,7 @@ src/
 | `org.lwjgl:lwjgl` | `3.3.4` | LWJGL core runtime |
 | `org.lwjgl:lwjgl-assimp` | `3.3.4` | Assimp Java bindings |
 | LWJGL natives | `3.3.4` | Native binaries for Windows x64, Linux x64, macOS x64, macOS ARM64 |
-| `dev.nuclr:plugins-sdk` | `1.0.0` | Nuclr plugin interfaces |
+| `dev.nuclr:platform-sdk` | `2.0.1` | Nuclr platform interfaces |
 
 ## 📜 License
 

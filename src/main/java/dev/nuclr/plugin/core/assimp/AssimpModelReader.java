@@ -29,7 +29,7 @@ import org.lwjgl.assimp.Assimp;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 
-import dev.nuclr.plugin.PluginPathResource;
+import dev.nuclr.platform.plugin.NuclrResourcePath;
 import dev.nuclr.plugin.core.assimp.model.MeshData;
 import dev.nuclr.plugin.core.assimp.model.ModelData;
 import dev.nuclr.plugin.core.assimp.model.TextureData;
@@ -117,7 +117,7 @@ public final class AssimpModelReader {
      * @param item      item to import
      * @param cancelled token; returns early if set
      */
-    public static ModelData read(PluginPathResource item, AtomicBoolean cancelled) {
+    public static ModelData read(NuclrResourcePath item, AtomicBoolean cancelled) {
         ModelStats stats = new ModelStats();
 
         if (item.getPath() == null) {

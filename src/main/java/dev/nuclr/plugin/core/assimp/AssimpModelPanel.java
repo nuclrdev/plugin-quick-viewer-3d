@@ -14,9 +14,15 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
-import javax.swing.*;
+import javax.swing.BorderFactory;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
+import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 
-import dev.nuclr.plugin.PluginPathResource;
+import dev.nuclr.platform.plugin.NuclrResourcePath;
 import dev.nuclr.plugin.core.assimp.gl.ModelViewportCanvas;
 import dev.nuclr.plugin.core.assimp.model.ModelData;
 import lombok.extern.slf4j.Slf4j;
@@ -184,7 +190,7 @@ public class AssimpModelPanel extends JPanel {
      * Returns {@code true} immediately; the panel updates itself via
      * {@code SwingUtilities.invokeLater} when parsing finishes.
      */
-    public boolean load(PluginPathResource item, AtomicBoolean cancelled) {
+    public boolean load(NuclrResourcePath item, AtomicBoolean cancelled) {
         final long gen = generation.incrementAndGet();
 
         SwingUtilities.invokeLater(() -> {
@@ -312,7 +318,7 @@ public class AssimpModelPanel extends JPanel {
         centreHolder.add(placeholderLabel, BorderLayout.CENTER);
     }
 
-    private void displayResult(PluginPathResource item, ModelData data) {
+    private void displayResult(NuclrResourcePath item, ModelData data) {
         boolean ok = !data.hasError();
 
         viewportStatusLabel.setText(ok ? "Ready" : "Failed");
@@ -330,7 +336,7 @@ public class AssimpModelPanel extends JPanel {
 
     // ── Stats formatting ──────────────────────────────────────────────────────
 
-    private static String formatStats(PluginPathResource item, ModelStats stats) {
+    private static String formatStats(NuclrResourcePath item, ModelStats stats) {
         NumberFormat nf  = NumberFormat.getIntegerInstance();
         StringBuilder sb = new StringBuilder(512);
         String sep = "\u2500".repeat(32) + "\n";
