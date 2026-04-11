@@ -206,7 +206,14 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
                 log.warn("GL cleanup on removeNotify threw", ex);
             }
         }
-        super.removeNotify(); // ← lwjgl3-awt destroys the GL context here
+        try {
+            super.removeNotify(); // ← lwjgl3-awt destroys the GL context here
+        } catch (NullPointerException ex) {
+            // JAWT drawing surface was never acquired (canvas removed before first render).
+            // lwjgl3-awt's PlatformWin32GLCanvas.dispose() calls JAWT_FreeDrawingSurface(ds)
+            // without a null-check; swallow the NPE here since there is nothing to free.
+            log.warn("AWTGLCanvas.removeNotify threw (canvas disposed before GL context was acquired)");
+        }
     }
 
     // ── Public API (EDT) ──────────────────────────────────────────────────────
