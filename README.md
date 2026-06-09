@@ -59,32 +59,6 @@ Nuclr Commander verifies the RSA-SHA256 signature against `nuclr-cert.pem` on lo
 
 > 🔧 LWJGL extracts the required native libraries (`.dll`, `.so`, or `.dylib`) from bundled JARs into the system temp directory on first use. If extraction fails, the panel shows a readable error instead of crashing. If OpenGL initialisation fails, the panel falls back to metadata-only display.
 
-## 🛠️ Building
-
-Prerequisites: `Java 21+`, `Maven 3.9+`. The `platform-sdk` dependency is available on Maven Central — no local install required.
-
-```bash
-# Compile, package, and sign
-mvn clean verify \
-  -Djarsigner.storepass=<keystore-password> \
-  -Djarsigner.keystorepath=<path-to.p12> \
-  -Djarsigner.keyalias=<alias>
-
-# Artifacts in target/
-#   quick-view-3d-<version>.zip
-#   quick-view-3d-<version>.zip.sig
-```
-
-The default keystore path and alias (for local development) are set in `pom.xml` under `<properties>` and can be overridden with the `-D` flags above.
-
-### 🚀 Quick deploy
-
-```bat
-deploy.bat
-```
-
-Runs `mvn clean verify` and copies both artifacts into `C:\nuclr\sources\commander\plugins\`.
-
 ## ⚙️ How it works
 
 ### Assimp import
