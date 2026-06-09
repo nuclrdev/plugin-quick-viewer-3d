@@ -22,7 +22,7 @@ import javax.swing.JTextArea;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 
-import dev.nuclr.platform.plugin.NuclrResourcePath;
+import dev.nuclr.platform.plugin.NuclrResource;
 import dev.nuclr.plugin.core.assimp.gl.ModelViewportCanvas;
 import dev.nuclr.plugin.core.assimp.model.ModelData;
 import lombok.extern.slf4j.Slf4j;
@@ -190,7 +190,7 @@ public class AssimpModelPanel extends JPanel {
      * Returns {@code true} immediately; the panel updates itself via
      * {@code SwingUtilities.invokeLater} when parsing finishes.
      */
-    public boolean load(NuclrResourcePath item, AtomicBoolean cancelled) {
+    public boolean load(NuclrResource item, AtomicBoolean cancelled) {
         final long gen = generation.incrementAndGet();
 
         SwingUtilities.invokeLater(() -> {
@@ -318,7 +318,7 @@ public class AssimpModelPanel extends JPanel {
         centreHolder.add(placeholderLabel, BorderLayout.CENTER);
     }
 
-    private void displayResult(NuclrResourcePath item, ModelData data) {
+    private void displayResult(NuclrResource item, ModelData data) {
         boolean ok = !data.hasError();
 
         viewportStatusLabel.setText(ok ? "Ready" : "Failed");
@@ -336,7 +336,7 @@ public class AssimpModelPanel extends JPanel {
 
     // ── Stats formatting ──────────────────────────────────────────────────────
 
-    private static String formatStats(NuclrResourcePath item, ModelStats stats) {
+    private static String formatStats(NuclrResource item, ModelStats stats) {
         NumberFormat nf  = NumberFormat.getIntegerInstance();
         StringBuilder sb = new StringBuilder(512);
         String sep = "\u2500".repeat(32) + "\n";
@@ -346,7 +346,7 @@ public class AssimpModelPanel extends JPanel {
         row(sb, "Vertices",  nf.format(stats.getTotalVertices()));
         row(sb, "Faces",     nf.format(stats.getTotalFaces()));
         row(sb, "Materials", nf.format(stats.getMaterialCount()));
-        row(sb, "File Size", formatSize(item.getSizeBytes()));
+        row(sb, "File Size", formatSize(item.getLength()));
 
         Path p = item.getPath();
         if (p != null) {

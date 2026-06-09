@@ -15,6 +15,8 @@
 	<properties>
 		<maven.compiler.source>21</maven.compiler.source>
 		<maven.compiler.target>21</maven.compiler.target>
+		<jarsigner.keystorepath>C:/nuclr/key/nuclr-signing.p12</jarsigner.keystorepath>
+		<jarsigner.keyalias>nuclr</jarsigner.keyalias>
 	</properties>
 
 	<dependencyManagement>
@@ -35,7 +37,7 @@
 		<dependency>
 			<groupId>dev.nuclr</groupId>
 			<artifactId>platform-sdk</artifactId>
-			<version>2.0.4</version>
+			<version>3.0.1</version>
 			<scope>provided</scope>
 		</dependency>
 		<!-- Source: https://mvnrepository.com/artifact/org.projectlombok/lombok -->
@@ -57,22 +59,34 @@
 			<version>2.21.1</version>
 			<scope>provided</scope>
 		</dependency>
+		<dependency>
+			<groupId>commons-io</groupId>
+			<artifactId>commons-io</artifactId>
+			<version>2.22.0</version>
+			<scope>provided</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.apache.commons</groupId>
+			<artifactId>commons-lang3</artifactId>
+			<version>3.20.0</version>
+			<scope>provided</scope>
+		</dependency>		
 
-		<!-- ── LWJGL core
-		────────────────────────────────────────────────────── -->
+		<!-- â”€â”€ LWJGL core
+		â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 		<dependency>
 			<groupId>org.lwjgl</groupId>
 			<artifactId>lwjgl</artifactId>
 		</dependency>
-		<!-- ── LWJGL Assimp binding
-		──────────────────────────────────────────── -->
+		<!-- â”€â”€ LWJGL Assimp binding
+		â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 		<dependency>
 			<groupId>org.lwjgl</groupId>
 			<artifactId>lwjgl-assimp</artifactId>
 		</dependency>
 
-		<!-- ── LWJGL OpenGL binding
-		──────────────────────────────────────────── -->
+		<!-- â”€â”€ LWJGL OpenGL binding
+		â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 		<dependency>
 			<groupId>org.lwjgl</groupId>
 			<artifactId>lwjgl-opengl</artifactId>
@@ -91,8 +105,8 @@
 			<scope>compile</scope>
 		</dependency>
 
-		<!-- ── Natives: Windows x86-64
-		───────────────────────────────────────── -->
+		<!-- â”€â”€ Natives: Windows x86-64
+		â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 		<dependency>
 			<groupId>org.lwjgl</groupId>
 			<artifactId>lwjgl</artifactId>
@@ -115,8 +129,8 @@
 			<scope>runtime</scope>
 		</dependency>
 
-		<!-- ── Natives: Linux x86-64
-		─────────────────────────────────────────── -->
+		<!-- â”€â”€ Natives: Linux x86-64
+		â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 		<dependency>
 			<groupId>org.lwjgl</groupId>
 			<artifactId>lwjgl</artifactId>
@@ -139,7 +153,7 @@
 			<scope>runtime</scope>
 		</dependency>
 
-		<!-- ── Natives: macOS x86-64 (Intel) ────────────────────────────────── -->
+		<!-- â”€â”€ Natives: macOS x86-64 (Intel) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 		<dependency>
 			<groupId>org.lwjgl</groupId>
 			<artifactId>lwjgl</artifactId>
@@ -162,8 +176,8 @@
 			<scope>runtime</scope>
 		</dependency>
 
-		<!-- ── Natives: macOS ARM64 (Apple Silicon)
-		──────────────────────────── -->
+		<!-- â”€â”€ Natives: macOS ARM64 (Apple Silicon)
+		â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 		<dependency>
 			<groupId>org.lwjgl</groupId>
 			<artifactId>lwjgl</artifactId>
@@ -196,6 +210,23 @@
 	</dependencies>
 
 	<build>
+		<resources>
+			<resource>
+				<directory>src/main/resources</directory>
+				<filtering>true</filtering>
+				<includes>
+					<include>plugin.properties</include>
+				</includes>
+			</resource>
+			<resource>
+				<directory>src/main/resources</directory>
+				<filtering>false</filtering>
+				<excludes>
+					<exclude>plugin.properties</exclude>
+				</excludes>
+			</resource>
+		</resources>
+
 		<plugins>
 
 			<!-- Run JUnit 5 tests -->
@@ -326,13 +357,15 @@
 								<script><![CDATA[
 import java.security.*
 
-def storepass = project.properties['jarsigner.storepass']
+def storepass = System.getProperty('jarsigner.storepass') ?: project.properties['jarsigner.storepass']
+def keystorePath = System.getProperty('jarsigner.keystorepath') ?: project.properties['jarsigner.keystorepath']
+def keyAlias = System.getProperty('jarsigner.keyalias') ?: project.properties['jarsigner.keyalias']
 def ks = KeyStore.getInstance("PKCS12")
-new FileInputStream("C:/nuclr/key/nuclr-signing.p12").withStream {
+new FileInputStream(keystorePath).withStream {
 	ks.load(it, storepass.toCharArray())
 }
 
-def key = ks.getKey("nuclr", storepass.toCharArray())
+def key = ks.getKey(keyAlias, storepass.toCharArray())
 def sig = Signature.getInstance("SHA256withRSA")
 sig.initSign(key)
 

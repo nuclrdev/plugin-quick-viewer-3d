@@ -1,17 +1,17 @@
 package dev.nuclr.plugin.core.assimp;
 
-import java.util.List;
+import java.nio.file.Path;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.JComponent;
 
+import org.apache.commons.io.FilenameUtils;
+
 import dev.nuclr.platform.NuclrThemeScheme;
-import dev.nuclr.platform.plugin.NuclrMenuResource;
-import dev.nuclr.platform.plugin.NuclrPlugin;
 import dev.nuclr.platform.plugin.NuclrPluginContext;
-import dev.nuclr.platform.plugin.NuclrPluginRole;
-import dev.nuclr.platform.plugin.NuclrResourcePath;
+import dev.nuclr.platform.plugin.NuclrResource;
+import dev.nuclr.platform.plugin.QuickViewNuclrPlugin;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -22,7 +22,7 @@ import lombok.extern.slf4j.Slf4j;
  * panel is created lazily and reused across files.
  */
 @Slf4j
-public class AssimpModelQuickViewProvider implements NuclrPlugin {
+public class AssimpModelQuickViewProvider implements QuickViewNuclrPlugin {
 
 	private static final Set<String> SUPPORTED_EXTENSIONS = Set.of("fbx", "obj", "gltf", "glb", "dae", "3ds", "ply",
 			"stl");
@@ -32,7 +32,7 @@ public class AssimpModelQuickViewProvider implements NuclrPlugin {
 	private volatile AtomicBoolean currentCancelled;
 	private String uuid = java.util.UUID.randomUUID().toString();
 
-	// ── BasePlugin ────────────────────────────────────────────────────────────
+	// â”€â”€ BasePlugin â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 	@Override
 	public JComponent panel() {
@@ -42,13 +42,17 @@ public class AssimpModelQuickViewProvider implements NuclrPlugin {
 	}
 
 	@Override
-	public List<NuclrMenuResource> menuItems(NuclrResourcePath source) {
-		return List.of();
+	public void preinit(NuclrPluginContext context) {
+		this.context = context;
 	}
 
 	@Override
-	public void load(NuclrPluginContext context, boolean isTemplate) {
-		this.context = context;
+	public void init() {
+	}
+
+	@Override
+	public NuclrPluginContext getContext() {
+		return this.context;
 	}
 
 	@Override
@@ -56,20 +60,26 @@ public class AssimpModelQuickViewProvider implements NuclrPlugin {
 		closeResource();
 		if (panel != null) {
 			// Dispose GL resources before the panel is dropped.
-			// Must be called on the EDT — the plugin framework guarantees this.
+			// Must be called on the EDT â€” the plugin framework guarantees this.
 			panel.disposeViewport();
 			panel = null;
 		}
 		context = null;
 	}
 
-	// ── QuickViewProviderPlugin ───────────────────────────────────────────────
+	// â”€â”€ QuickViewProviderPlugin â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 	@Override
-	public boolean supports(NuclrResourcePath resource) {
-		if (resource == null || resource.getExtension() == null)
+	public boolean supports(Path resource) {
+		String extension = extension(resource);
+		if (extension == null)
 			return false;
-		return SUPPORTED_EXTENSIONS.contains(resource.getExtension().toLowerCase());
+		return SUPPORTED_EXTENSIONS.contains(extension.toLowerCase());
+	}
+
+	private static String extension(Path path) {
+		var name = path.getFileName() != null ? path.getFileName().toString() : path.toString();
+		return FilenameUtils.getExtension(name);
 	}
 
 	@Override
@@ -78,7 +88,7 @@ public class AssimpModelQuickViewProvider implements NuclrPlugin {
 	}
 
 	@Override
-	public boolean openResource(NuclrResourcePath resource, AtomicBoolean cancelled) {
+	public boolean openResource(NuclrResource resource, AtomicBoolean cancelled) {
 		if (currentCancelled != null)
 			currentCancelled.set(true);
 		currentCancelled = cancelled;
@@ -96,7 +106,7 @@ public class AssimpModelQuickViewProvider implements NuclrPlugin {
 			panel.closePreview();
 	}
 
-	// ── FocusablePlugin ───────────────────────────────────────────────────────
+	// â”€â”€ FocusablePlugin â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 	@Override
 	public boolean onFocusGained() {
@@ -114,8 +124,8 @@ public class AssimpModelQuickViewProvider implements NuclrPlugin {
 
 	private String name = "3D Model Quick Viewer";
 	private String id = "dev.nuclr.plugin.core.quickviewer.3d";
-	private String version = "1.0.0";
-	private String description = "A quick viewer for 3D model files (FBX, OBJ, glTF/GLB, DAE, 3DS, PLY, STL) — displays mesh count, vertex/face totals, materials, bounding box, and texture references via Assimp.";
+	private final String version = loadVersion();
+	private String description = "A quick viewer for 3D model files (FBX, OBJ, glTF/GLB, DAE, 3DS, PLY, STL) â€” displays mesh count, vertex/face totals, materials, bounding box, and texture references via Assimp.";
 	private String author = "Nuclr Development Team";
 	private String license = "Apache-2.0";
 	private String website = "https://nuclr.dev";
@@ -135,6 +145,16 @@ public class AssimpModelQuickViewProvider implements NuclrPlugin {
 	@Override
 	public String version() {
 		return version;
+	}
+	private static String loadVersion() {
+		try (var stream = AssimpModelQuickViewProvider.class.getResourceAsStream("/plugin.properties")) {
+			if (stream == null) return "unknown";
+			var props = new java.util.Properties();
+			props.load(stream);
+			return props.getProperty("version", "unknown");
+		} catch (java.io.IOException e) {
+			return "unknown";
+		}
 	}
 
 	@Override
@@ -168,7 +188,7 @@ public class AssimpModelQuickViewProvider implements NuclrPlugin {
 	}
 
 	@Override
-	public Developer type() {
+	public Developer developer() {
 		return Developer.Official;
 	}
 
@@ -177,12 +197,7 @@ public class AssimpModelQuickViewProvider implements NuclrPlugin {
 	}
 
 	@Override
-	public NuclrPluginRole role() {
-		return NuclrPluginRole.QuickViewer;
-	}
-
-	@Override
-	public NuclrResourcePath getCurrentResource() {
+	public NuclrResource getCurrentResource() {
 		return null;
 	}
 
