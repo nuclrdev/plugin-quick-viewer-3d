@@ -32,8 +32,6 @@ public class AssimpModelQuickViewProvider implements QuickViewNuclrPlugin {
 	private volatile AtomicBoolean currentCancelled;
 	private String uuid = java.util.UUID.randomUUID().toString();
 
-	// â”€â”€ BasePlugin â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
 	@Override
 	public JComponent panel() {
 		if (panel == null)
@@ -67,16 +65,26 @@ public class AssimpModelQuickViewProvider implements QuickViewNuclrPlugin {
 		context = null;
 	}
 
-	// â”€â”€ QuickViewProviderPlugin â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
 	@Override
-	public boolean supports(Path resource) {
+	public boolean supports(NuclrResource resource) {
 		String extension = extension(resource);
 		if (extension == null)
 			return false;
 		return SUPPORTED_EXTENSIONS.contains(extension.toLowerCase());
 	}
 
+	private static String extension(NuclrResource resource) {
+		if (resource == null || resource.getName() == null) {
+			return null;
+		}
+		String name = resource.getName();
+		int dot = name.lastIndexOf('.');
+		if (dot < 0 || dot == name.length() - 1) {
+			return null;
+		}
+		return name.substring(dot + 1);
+	}
+	
 	private static String extension(Path path) {
 		var name = path.getFileName() != null ? path.getFileName().toString() : path.toString();
 		return FilenameUtils.getExtension(name);
