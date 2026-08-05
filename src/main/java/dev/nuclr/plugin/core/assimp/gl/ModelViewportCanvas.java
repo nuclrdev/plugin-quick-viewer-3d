@@ -125,7 +125,6 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
     // ── Dispose / lifecycle ───────────────────────────────────────────────────
 
     private volatile boolean disposeRequested = false;
-    private boolean          removeNotifyCalled = false;
 
     // ── Render timer ──────────────────────────────────────────────────────────
 
@@ -184,7 +183,13 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
     public void addNotify() {
         super.addNotify(); // ← lwjgl3-awt creates the platform GL context here
         log.debug("ModelViewportCanvas.addNotify — canvas is now displayable");
-        dirty = true;      // force a render now that we have a real peer
+        if (!disposeRequested) {
+            // A heavyweight Canvas may lose and regain its peer when the host
+            // moves or replaces panes. Resume rendering for the new peer.
+            noGlReadyTicks.set(0);
+            dirty = true;
+            renderTimer.start();
+        }
     }
 
     /**
@@ -193,15 +198,13 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
      */
     @Override
     public void removeNotify() {
-        if (removeNotifyCalled) {
-            return;
-        }
-        removeNotifyCalled = true;
         renderTimer.stop();
         if (glReady) {
-            disposeRequested = true;
             try {
-                render(); // paintGL sees disposeRequested → cleanupGlResources()
+                // This may be a transient peer teardown. Release GPU objects
+                // without marking the canvas terminally disposed so a later
+                // addNotify() can initialise the replacement context.
+                runInContext(this::cleanupGlResources);
             } catch (Exception ex) {
                 log.warn("GL cleanup on removeNotify threw", ex);
             }
@@ -237,13 +240,21 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
      */
     public void dispose() {
         renderTimer.stop();
-        if (!glReady) return;
         disposeRequested = true;
-        try {
-            render();
-        } catch (Exception ex) {
-            log.warn("GL dispose threw", ex);
+        pendingModel = null;
+        currentModel = null;
+        if (glReady) {
+            try {
+                render();
+            } catch (Exception ex) {
+                log.warn("GL dispose threw", ex);
+            }
         }
+
+        // AWTGLCanvas is a heavyweight native child. Hide its peer explicitly
+        // before Swing replaces the surrounding lightweight panel; otherwise
+        // the window system can leave its last buffer above the new view.
+        setVisible(false);
     }
 
     // ── Timer tick ────────────────────────────────────────────────────────────
