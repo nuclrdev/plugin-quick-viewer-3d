@@ -133,7 +133,7 @@ public class AssimpModelQuickViewProvider implements QuickViewNuclrPlugin {
 	private String name = "3D Model Quick Viewer";
 	private String id = "dev.nuclr.plugin.core.quickviewer.3d";
 	private final String version = loadVersion();
-	private String description = "A quick viewer for 3D model files (FBX, OBJ, glTF/GLB, DAE, 3DS, PLY, STL) â€” displays mesh count, vertex/face totals, materials, bounding box, and texture references via Assimp.";
+	private String description = "A quick viewer for 3D model files (FBX, OBJ, glTF/GLB, DAE, 3DS, PLY, STL) that displays mesh count, vertex/face totals, materials, bounding box, and texture references via Assimp.";
 	private String author = "Nuclr Development Team";
 	private String license = "Apache-2.0";
 	private String website = "https://nuclr.dev";
