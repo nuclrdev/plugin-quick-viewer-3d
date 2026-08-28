@@ -5,8 +5,11 @@ import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -120,10 +123,6 @@ public final class AssimpModelReader {
     public static ModelData read(NuclrResource item, AtomicBoolean cancelled) {
         ModelStats stats = new ModelStats();
 
-        if (item.getPath() == null) {
-            return fail("Assimp requires a real file on disk; stream-only items are not supported.", stats);
-        }
-
         long sizeBytes = item.getLength();
         if (sizeBytes > MAX_FILE_BYTES) {
             return fail(String.format(
@@ -131,14 +130,40 @@ public final class AssimpModelReader {
                     sizeBytes / 1_048_576.0), stats);
         }
 
+        // The native importer opens a path, not a stream, so a resource with no local file
+        // (a bucket object, a zip entry) is staged to a temp file first. Its textures cannot
+        // follow it there, so only the mesh survives the trip.
+        Path staged = null;
+        try {
+            Path modelFile = item.getPath();
+            if (modelFile == null) {
+                staged = stage(item, cancelled);
+                modelFile = staged;
+                stats.getWarnings().add(
+                        "Textures stored beside the model were not loaded: this model has no local "
+                        + "folder to resolve them against. Embedded textures are unaffected.");
+            }
+            return importModel(modelFile, stats, cancelled);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return fail("Model loading cancelled.", stats);
+        } catch (Exception e) {
+            return fail("Could not read the model: " + e.getMessage(), stats);
+        } finally {
+            deleteQuietly(staged);
+        }
+    }
+
+    /** Run the Assimp import over a real file on disk. */
+    private static ModelData importModel(Path modelFile, ModelStats stats, AtomicBoolean cancelled) {
+
         int flags = Assimp.aiProcess_Triangulate
                   | Assimp.aiProcess_JoinIdenticalVertices
                   | Assimp.aiProcess_SortByPType
                   | Assimp.aiProcess_GenSmoothNormals  // no-op if normals present
                   | Assimp.aiProcess_PreTransformVertices; // bake node transforms into vertex data
 
-        AIScene scene = Assimp.aiImportFile(
-                item.getPath().toAbsolutePath().toString(), flags);
+        AIScene scene = Assimp.aiImportFile(modelFile.toAbsolutePath().toString(), flags);
 
         if (scene == null) {
             String err = Assimp.aiGetErrorString();
@@ -147,11 +172,66 @@ public final class AssimpModelReader {
         }
 
         try {
-            Path modelDir = item.getPath().getParent();
-            if (modelDir == null) modelDir = item.getPath();
+            Path modelDir = modelFile.getParent();
+            if (modelDir == null) modelDir = modelFile;
             return buildModelData(scene, stats, cancelled, modelDir);
         } finally {
             Assimp.aiReleaseImport(scene); // always release native memory
+        }
+    }
+
+    /**
+     * Copy a stream-only resource to a temp file Assimp can open.
+     *
+     * <p>The suffix is carried over from the resource name because Assimp picks its importer
+     * from the file extension; a staged model with the wrong suffix simply fails to load.
+     */
+    private static Path stage(NuclrResource item, AtomicBoolean cancelled) throws Exception {
+
+        Path tempFile = Files.createTempFile("nuclr-model-preview-", suffix(item));
+        // Safety net for an exit before the finally block above runs.
+        tempFile.toFile().deleteOnExit();
+        try {
+            try (InputStream input = item.openInputStream();
+                    OutputStream output = Files.newOutputStream(tempFile)) {
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = input.read(buffer)) >= 0) {
+                    if (cancelled != null && cancelled.get()) {
+                        throw new InterruptedException("Model loading cancelled");
+                    }
+                    if (read > 0) {
+                        output.write(buffer, 0, read);
+                    }
+                }
+            }
+            return tempFile;
+        } catch (Exception e) {
+            deleteQuietly(tempFile);
+            throw e;
+        }
+    }
+
+    /** The resource's extension, dot included, or {@code ".model"} when it has none. */
+    private static String suffix(NuclrResource item) {
+        String name = item != null ? item.getName() : null;
+        if (name != null) {
+            int dot = name.lastIndexOf('.');
+            if (dot > 0 && dot < name.length() - 1) {
+                return name.substring(dot);
+            }
+        }
+        return ".model";
+    }
+
+    private static void deleteQuietly(Path file) {
+        if (file == null) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(file);
+        } catch (IOException e) {
+            log.debug("Could not delete the staged model file {}", file, e);
         }
     }
 
