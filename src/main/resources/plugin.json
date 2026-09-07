@@ -9,7 +9,7 @@
 			"id": "dev.nuclr.plugin.core.quickviewer.3d",
 			"name": "3D Model Quick Viewer",
 			"version": "${project.version}",
-			"description": "A quick viewer for 3D model files (FBX, OBJ, glTF/GLB, DAE, 3DS, PLY, STL) that displays mesh count, vertex/face totals, materials, bounding box, and texture references via Assimp.",
+			"description": "A quick viewer for 3D model files (FBX, OBJ, glTF/GLB, DAE, 3DS, PLY, STL) that displays mesh count, vertex/face totals, materials, bounding box, and texture references via Assimp. Blender, when installed, adds .blend, USD and Alembic.",
 			"author": "Nuclr Development Team",
 			"license": "Apache-2.0",
 			"website": "https://nuclr.dev",

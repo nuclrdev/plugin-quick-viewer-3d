@@ -46,7 +46,8 @@ import lombok.extern.slf4j.Slf4j;
  * <h3>Threading</h3>
  * <ul>
  *   <li>Construction and all UI updates happen on the EDT.</li>
- *   <li>Assimp parsing runs on a virtual thread.</li>
+ *   <li>Assimp parsing runs on a virtual thread; formats that need a Blender
+ *       conversion first run it there too, reporting progress as they go.</li>
  *   <li>GL upload happens on the EDT inside {@code ModelViewportCanvas.paintGL()}.</li>
  * </ul>
  *
@@ -211,7 +212,8 @@ public class AssimpModelPanel extends JPanel {
                           s.getWarnings().add("Assimp native library is not available.");
                           data = new ModelData("Assimp unavailable.", s);
                       } else {
-                          data = AssimpModelReader.read(item, cancelled);
+                          data = AssimpModelReader.read(
+                                  item, cancelled, message -> postProgress(gen, cancelled, message));
                       }
                   } catch (Exception e) {
                       log.warn("Unexpected error parsing '{}'", item.getName(), e);
@@ -231,6 +233,22 @@ public class AssimpModelPanel extends JPanel {
               });
 
         return true;
+    }
+
+    /**
+     * Shows a step of a load that is still running. Converting a {@code .blend}
+     * takes seconds, and silence for that long reads as a hang.
+     *
+     * <p>Called from the loading thread; drops anything from a superseded load.
+     */
+    private void postProgress(long gen, AtomicBoolean cancelled, String message) {
+        SwingUtilities.invokeLater(() -> {
+            if (cancelled.get() || generation.get() != gen) {
+                return;
+            }
+            viewportStatusLabel.setText(message);
+            statusBar.setText(message);
+        });
     }
 
     /** Clears the panel and cancels any in-flight load. */
@@ -354,6 +372,11 @@ public class AssimpModelPanel extends JPanel {
                 FileTime ft = Files.getLastModifiedTime(p);
                 row(sb, "Modified", TS_FMT.format(ft.toInstant()));
             } catch (Exception ignored) { /* best-effort */ }
+        }
+
+        if (stats.getSourceNote() != null) {
+            sb.append("\nSource\n").append(sep);
+            sb.append("  ").append(stats.getSourceNote()).append('\n');
         }
 
         if (stats.isHasBoundingBox()) {

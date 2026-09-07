@@ -15,9 +15,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 import javax.imageio.ImageIO;
 
@@ -33,6 +35,8 @@ import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 
 import dev.nuclr.platform.plugin.NuclrResource;
+import dev.nuclr.plugin.core.assimp.blender.BlenderBridge;
+import dev.nuclr.plugin.core.assimp.blender.BlenderException;
 import dev.nuclr.plugin.core.assimp.model.MeshData;
 import dev.nuclr.plugin.core.assimp.model.ModelData;
 import dev.nuclr.plugin.core.assimp.model.TextureData;
@@ -45,6 +49,11 @@ import lombok.extern.slf4j.Slf4j;
  * <p>All methods are static and safe to call from any thread.  The caller is
  * responsible for checking the {@link AtomicBoolean} cancellation token and
  * discarding stale results.
+ *
+ * <p>Formats the native importer cannot open ({@code .blend}, USD, Alembic) are
+ * handed to {@link BlenderBridge} first and come back as a self-contained GLB,
+ * which then takes the ordinary path through here.  That detour costs seconds
+ * on a cache miss, so callers should pass a progress callback.
  *
  * <h3>Limits</h3>
  * <ul>
@@ -121,6 +130,18 @@ public final class AssimpModelReader {
      * @param cancelled token; returns early if set
      */
     public static ModelData read(NuclrResource item, AtomicBoolean cancelled) {
+        return read(item, cancelled, message -> { });
+    }
+
+    /**
+     * Runs a full import and returns a {@link ModelData}.
+     * Never throws; errors are captured in {@link ModelData#error}.
+     *
+     * @param item      item to import
+     * @param cancelled token; returns early if set
+     * @param progress  receives status messages for the long steps; called on this thread
+     */
+    public static ModelData read(NuclrResource item, AtomicBoolean cancelled, Consumer<String> progress) {
         ModelStats stats = new ModelStats();
 
         long sizeBytes = item.getLength();
@@ -143,15 +164,42 @@ public final class AssimpModelReader {
                         "Textures stored beside the model were not loaded: this model has no local "
                         + "folder to resolve them against. Embedded textures are unaffected.");
             }
+            String extension = extensionOf(item);
+            if (BlenderBridge.handles(extension)) {
+                modelFile = convertWithBlender(item, modelFile, extension, stats, progress, cancelled);
+            }
+
             return importModel(modelFile, stats, cancelled);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return fail("Model loading cancelled.", stats);
+        } catch (BlenderException e) {
+            // Already phrased for the panel; a generic prefix would only bury it.
+            return fail(e.getMessage(), stats);
         } catch (Exception e) {
             return fail("Could not read the model: " + e.getMessage(), stats);
         } finally {
             deleteQuietly(staged);
         }
+    }
+
+    /**
+     * Converts a format Assimp cannot read into a GLB and returns that file.
+     *
+     * <p>The GLB carries its textures inside it, so the converted model no longer
+     * depends on the folder it came from.
+     */
+    private static Path convertWithBlender(NuclrResource item, Path source, String extension,
+                                           ModelStats stats, Consumer<String> progress,
+                                           AtomicBoolean cancelled) throws BlenderException {
+
+        progress.accept("Converting with Blender…");
+        BlenderBridge.Conversion conversion = BlenderBridge.convert(item, source, extension, cancelled);
+
+        stats.setSourceNote("." + extension + " → glTF, Blender " + conversion.blenderVersion()
+                + (conversion.cached() ? " (cached)" : ""));
+        progress.accept("Reading converted model…");
+        return conversion.glb();
     }
 
     /** Run the Assimp import over a real file on disk. */
@@ -210,6 +258,18 @@ public final class AssimpModelReader {
             deleteQuietly(tempFile);
             throw e;
         }
+    }
+
+    /** The resource's extension in lower case, without the dot; empty when it has none. */
+    private static String extensionOf(NuclrResource item) {
+        String name = item != null ? item.getName() : null;
+        if (name != null) {
+            int dot = name.lastIndexOf('.');
+            if (dot > 0 && dot < name.length() - 1) {
+                return name.substring(dot + 1).toLowerCase(Locale.ROOT);
+            }
+        }
+        return "";
     }
 
     /** The resource's extension, dot included, or {@code ".model"} when it has none. */

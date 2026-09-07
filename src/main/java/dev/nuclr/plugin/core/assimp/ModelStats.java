@@ -36,6 +36,12 @@ public class ModelStats {
     private float centerX, centerY, centerZ;
     private float boundingRadius;
 
+    /**
+     * How the model reached the viewer when it was not read directly, e.g. after
+     * a Blender conversion. Null for a format Assimp opened itself.
+     */
+    private String sourceNote;
+
     /** Non-fatal warnings collected during parsing (missing textures, size limits, etc.). */
     private final List<String> warnings = new ArrayList<>();
 

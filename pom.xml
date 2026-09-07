@@ -14,6 +14,10 @@
 
 	<properties>
 		<platform.sdk.version>4.0.0</platform.sdk.version>
+		<!-- Sources carry box-drawing characters in comments and ellipses in UI
+		     strings; without this javac and the resource filter fall back to the
+		     platform encoding, which mangles them on a non-UTF-8 machine. -->
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<maven.compiler.source>25</maven.compiler.source>
 		<maven.compiler.target>25</maven.compiler.target>
 		<jarsigner.keystorepath>C:/nuclr/key/nuclr-signing.p12</jarsigner.keystorepath>
@@ -251,6 +255,13 @@
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-surefire-plugin</artifactId>
 				<version>3.5.2</version>
+				<configuration>
+					<systemPropertyVariables>
+						<!-- Keep converted-model tests out of the developer's real
+						     cache at ~/.nuclr/cache/blender-glb. -->
+						<nuclr.blender.cache>${project.build.directory}/blender-cache</nuclr.blender.cache>
+					</systemPropertyVariables>
+				</configuration>
 			</plugin>
 
 			<!-- Build the plugin jar (normal jar) -->
