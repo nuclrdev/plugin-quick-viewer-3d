@@ -141,6 +141,23 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
     /** After this many failed ticks (~2 s) we give up and report an error. */
     private static final int NO_GL_READY_TIMEOUT = 125;
 
+    /**
+     * Consecutive ticks on which {@code render()} threw. EDT-only, so a plain int.
+     * Reset by the first render that gets through.
+     */
+    private int renderFailures = 0;
+
+    /** Set once the canvas has given up; a later peer must not restart the timer. */
+    private volatile boolean renderGaveUp = false;
+
+    /**
+     * How many consecutive failed renders are tolerated before the canvas gives up.
+     * A drawing surface that cannot be locked almost never recovers, and the timer
+     * fires ~10 times a second, so persisting past a few seconds only stutters the
+     * host application for as long as the panel stays open.
+     */
+    private static final int RENDER_FAILURE_LIMIT = 30;
+
     // ── Error / ready callbacks ────────────────────────────────────────────────
 
     private final Consumer<String> onGlError;
@@ -183,10 +200,11 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
     public void addNotify() {
         super.addNotify(); // ← lwjgl3-awt creates the platform GL context here
         log.debug("ModelViewportCanvas.addNotify — canvas is now displayable");
-        if (!disposeRequested) {
+        if (!disposeRequested && !renderGaveUp) {
             // A heavyweight Canvas may lose and regain its peer when the host
             // moves or replaces panes. Resume rendering for the new peer.
             noGlReadyTicks.set(0);
+            renderFailures = 0;
             dirty = true;
             renderTimer.start();
         }
@@ -262,6 +280,15 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
     private void timerTick() {
         if (disposeRequested) return;
 
+        // No on-screen surface means render() cannot lock one, and would throw on every
+        // tick. The quick view detaches and re-attaches this panel as the cursor moves
+        // between files, so an off-screen canvas is a normal state, not a failure --
+        // stand down until the peer is back, then repaint immediately.
+        if (!isShowing()) {
+            dirty = true;
+            return;
+        }
+
         boolean shouldRender;
         if (dirty) {
             dirty        = false;
@@ -278,8 +305,10 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
 
         try {
             render(); // makes GL context current on the EDT → paintGL()
+            renderFailures = 0;
         } catch (Exception ex) {
-            log.warn("render() threw: {}", ex.getMessage(), ex);
+            reportRenderFailure(ex);
+            return;
         }
 
         // ── Detect silent GL-context creation failure ─────────────────────────
@@ -292,12 +321,46 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
                 String msg = "3D preview unavailable: OpenGL 3.3 context could "
                     + "not be created. Check your graphics drivers or run with "
                     + "-Dorg.lwjgl.util.Debug=true for details.";
-                log.warn(msg);
-                SwingUtilities.invokeLater(() -> onGlError.accept(msg));
+                giveUp(msg);
             }
         } else {
             noGlReadyTicks.set(0);
         }
+    }
+
+    /**
+     * Handle a {@code render()} that threw.
+     *
+     * <p>Logging one WARN with a full stack trace per tick is what turns a broken
+     * viewport into a visibly stuttering application: the timer fires ~10 times a
+     * second and Logback writes to the file appender on the EDT. So the first failure
+     * is reported in full, the ones after it are dropped to DEBUG without a stack, and
+     * once the surface has refused {@link #RENDER_FAILURE_LIMIT} times in a row the
+     * canvas gives up rather than spinning for as long as the panel stays open.
+     */
+    private void reportRenderFailure(Exception ex) {
+
+        renderFailures++;
+
+        if (renderFailures == 1) {
+            log.warn("render() threw: {}", ex.getMessage(), ex);
+            return;
+        }
+
+        log.debug("render() threw again ({}): {}", renderFailures, ex.getMessage());
+
+        if (renderFailures >= RENDER_FAILURE_LIMIT) {
+            giveUp("3D preview stopped: the viewport could not be drawn to ("
+                    + ex.getMessage() + ").");
+        }
+    }
+
+    /** Stop rendering for good and hand the reason to the host panel. */
+    private void giveUp(String message) {
+        renderGaveUp = true;
+        renderTimer.stop();
+        log.warn(message);
+        SwingUtilities.invokeLater(() -> onGlError.accept(message));
     }
 
     // ── AWTGLCanvas callbacks ─────────────────────────────────────────────────

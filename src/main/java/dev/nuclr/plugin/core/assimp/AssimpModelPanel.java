@@ -277,14 +277,25 @@ public class AssimpModelPanel extends JPanel {
             return;
         }
 
+        nameLabel.setText(" ");
+        viewportStatusLabel.setText("Ready");
+        statusBar.setText(" ");
+        statsArea.setText("No file selected.");
+
         if (viewport != null) {
+            // Emptying the scene, not destroying the canvas. The quick view closes and
+            // reopens this preview on every cursor move, and ModelViewportCanvas is a
+            // heavyweight native surface: tearing its GL context down and building a
+            // replacement per file is what made arrow-keying through a folder of models
+            // stutter, and the churn is what left lwjgl3-awt holding a surface it could
+            // no longer lock. The canvas stops drawing by itself once it is off screen.
             viewport.setModelData(null);
-            viewport.dispose();
-            centreHolder.remove(viewport);
-            viewport = null;
-        } else {
-            centreHolder.removeAll();
+            return;
         }
+
+        // No canvas to keep: GL init failed and the fallback message is showing. Drop it
+        // so the next load can try to build a viewport again.
+        centreHolder.removeAll();
         glFallbackLabel = null;
         showPlaceholder();
         centreHolder.revalidate();
