@@ -73,6 +73,12 @@ Blender is **never bundled** — it is used if present and the feature stays off
 
 A first conversion costs a couple of seconds for a small scene, so the panel reports its progress while Blender works. Moving the selection away kills the process rather than letting it run to completion.
 
+## 🖼️ Thumbnail
+
+The model drawn by a small software rasteriser - z-buffered, lit, textured where the model has UVs, 2x supersampled - from the viewport's starting angle (30° yaw, 25° pitch) with an orthographic projection and a transparent background. The picture takes the shape of the model's silhouette within the box. The OpenGL viewport belongs to the panel, which a thumbnail must not touch, hence the CPU renderer. Blender formats are converted first, as for the preview.
+
+It implements the platform SDK 6.0.0 thumbnail methods, so plugins that want a picture of a file - attachment chips in AI Projects, for one - get it through Commander.
+
 ## 📥 Installation
 
 Copy the signed plugin archive and detached signature into the Nuclr Commander `plugins/` directory:
@@ -171,7 +177,7 @@ src/main/resources/blender/
 | `org.lwjgl:lwjgl-jawt` | `3.3.5` | AWT/Swing integration for LWJGL |
 | `org.lwjglx:lwjgl3-awt` | `0.2.3` | AWTGLCanvas for embedding OpenGL in Swing |
 | LWJGL natives | `3.3.5` | Native binaries for Windows x64, Linux x64, macOS x64, macOS ARM64 |
-| `dev.nuclr:platform-sdk` | `3.0.1` | Nuclr platform interfaces |
+| `dev.nuclr:platform-sdk` | `6.0.0` | Nuclr platform interfaces |
 
 ## 📜 License
 

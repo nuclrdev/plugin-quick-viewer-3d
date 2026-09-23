@@ -1,5 +1,6 @@
 package dev.nuclr.plugin.core.assimp;
 
+import java.awt.image.BufferedImage;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Set;
@@ -14,6 +15,7 @@ import dev.nuclr.platform.plugin.NuclrPluginContext;
 import dev.nuclr.platform.plugin.NuclrResource;
 import dev.nuclr.platform.plugin.QuickViewNuclrPlugin;
 import dev.nuclr.plugin.core.assimp.blender.BlenderBridge;
+import dev.nuclr.plugin.core.assimp.model.ModelData;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -158,6 +160,34 @@ public class AssimpModelQuickViewProvider implements QuickViewNuclrPlugin {
 		currentCancelled = cancelled;
 		panel(); // ensure panel exists
 		return panel.load(resource, cancelled);
+	}
+
+	@Override
+	public boolean supportsThumbnails() {
+		return true;
+	}
+
+	/**
+	 * Imports the model on the calling thread and draws it with a software
+	 * rasteriser: the viewport's GL context belongs to the panel, which a
+	 * thumbnail must not touch.
+	 */
+	@Override
+	public BufferedImage thumbnail(NuclrResource resource, int maxWidth, int maxHeight, AtomicBoolean cancelled) {
+		if (maxWidth <= 0 || maxHeight <= 0 || !supports(resource)) {
+			return null;
+		}
+		AtomicBoolean token = cancelled != null ? cancelled : new AtomicBoolean();
+		try {
+			ModelData model = AssimpModelReader.read(resource, token);
+			if (token.get()) {
+				return null;
+			}
+			return ModelThumbnailRenderer.render(model, maxWidth, maxHeight, token);
+		} catch (Exception | LinkageError e) {
+			log.debug("No thumbnail for {}: {}", resource.getName(), e.toString());
+			return null;
+		}
 	}
 
 	@Override
