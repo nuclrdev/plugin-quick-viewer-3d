@@ -108,6 +108,9 @@ public class AssimpModelPanel extends JPanel {
     private final JPanel centreHolder;
     private final JLabel placeholderLabel;
 
+    /** Shown over the viewport while Blender converts the file being loaded. */
+    private final ConversionPopup conversionPopup;
+
     // ── Constructor ───────────────────────────────────────────────────────────
 
     public AssimpModelPanel() {
@@ -180,6 +183,8 @@ public class AssimpModelPanel extends JPanel {
 
         add(centreHolder, BorderLayout.CENTER);
 
+        conversionPopup = new ConversionPopup(centreHolder);
+
         // ── Create the GL viewport (deferred until first use) ─────────────────
         initViewport();
     }
@@ -195,6 +200,7 @@ public class AssimpModelPanel extends JPanel {
         final long gen = generation.incrementAndGet();
 
         SwingUtilities.invokeLater(() -> {
+            conversionPopup.hide();
             ensureViewport();
             nameLabel.setText(item.getName());
             viewportStatusLabel.setText("Loading\u2026");
@@ -212,8 +218,7 @@ public class AssimpModelPanel extends JPanel {
                           s.getWarnings().add("Assimp native library is not available.");
                           data = new ModelData("Assimp unavailable.", s);
                       } else {
-                          data = AssimpModelReader.read(
-                                  item, cancelled, message -> postProgress(gen, cancelled, message));
+                          data = AssimpModelReader.read(item, cancelled, progressFor(item, gen, cancelled));
                       }
                   } catch (Exception e) {
                       log.warn("Unexpected error parsing '{}'", item.getName(), e);
@@ -251,10 +256,36 @@ public class AssimpModelPanel extends JPanel {
         });
     }
 
+    /** Routes a load's progress to this panel, dropping anything from a superseded load. */
+    private LoadProgress progressFor(NuclrResource item, long gen, AtomicBoolean cancelled) {
+        return new LoadProgress() {
+            @Override
+            public void step(String message) {
+                postProgress(gen, cancelled, message);
+            }
+
+            @Override
+            public void conversionStarted() {
+                SwingUtilities.invokeLater(() -> {
+                    if (!cancelled.get() && generation.get() == gen) {
+                        conversionPopup.conversionStarted(item.getName());
+                    }
+                });
+            }
+
+            @Override
+            public void conversionFinished() {
+                // Hidden whatever the generation: a superseded load's notice has to go too.
+                SwingUtilities.invokeLater(conversionPopup::hide);
+            }
+        };
+    }
+
     /** Clears the panel and cancels any in-flight load. */
     public void clear() {
         generation.incrementAndGet();
         SwingUtilities.invokeLater(() -> {
+            conversionPopup.hide();
             nameLabel.setText(" ");
             viewportStatusLabel.setText("Ready");
             statusBar.setText(" ");
@@ -265,6 +296,7 @@ public class AssimpModelPanel extends JPanel {
 
     /** Releases GL resources.  Must be called on the EDT. */
     public void disposeViewport() {
+        conversionPopup.dispose();
         if (viewport != null) {
             viewport.dispose();
         }
@@ -276,6 +308,8 @@ public class AssimpModelPanel extends JPanel {
             SwingUtilities.invokeLater(this::closePreview);
             return;
         }
+
+        conversionPopup.hide();
 
         nameLabel.setText(" ");
         viewportStatusLabel.setText("Ready");
@@ -348,6 +382,7 @@ public class AssimpModelPanel extends JPanel {
     }
 
     private void displayResult(NuclrResource item, ModelData data) {
+        conversionPopup.hide();
         boolean ok = !data.hasError();
 
         viewportStatusLabel.setText(ok ? "Ready" : "Failed");

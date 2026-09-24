@@ -19,7 +19,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
 
 import javax.imageio.ImageIO;
 
@@ -141,7 +140,7 @@ public final class AssimpModelReader {
      * @param cancelled token; returns early if set
      * @param progress  receives status messages for the long steps; called on this thread
      */
-    public static ModelData read(NuclrResource item, AtomicBoolean cancelled, Consumer<String> progress) {
+    public static ModelData read(NuclrResource item, AtomicBoolean cancelled, LoadProgress progress) {
         ModelStats stats = new ModelStats();
 
         long sizeBytes = item.getLength();
@@ -190,15 +189,21 @@ public final class AssimpModelReader {
      * depends on the folder it came from.
      */
     private static Path convertWithBlender(NuclrResource item, Path source, String extension,
-                                           ModelStats stats, Consumer<String> progress,
+                                           ModelStats stats, LoadProgress progress,
                                            AtomicBoolean cancelled) throws BlenderException {
 
-        progress.accept("Converting with Blender…");
-        BlenderBridge.Conversion conversion = BlenderBridge.convert(item, source, extension, cancelled);
+        progress.step("Converting with Blender…");
+        progress.conversionStarted();
+        BlenderBridge.Conversion conversion;
+        try {
+            conversion = BlenderBridge.convert(item, source, extension, cancelled);
+        } finally {
+            progress.conversionFinished();
+        }
 
         stats.setSourceNote("." + extension + " → glTF, Blender " + conversion.blenderVersion()
                 + (conversion.cached() ? " (cached)" : ""));
-        progress.accept("Reading converted model…");
+        progress.step("Reading converted model…");
         return conversion.glb();
     }
 

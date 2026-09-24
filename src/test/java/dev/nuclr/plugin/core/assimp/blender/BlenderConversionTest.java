@@ -25,6 +25,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import dev.nuclr.platform.plugin.NuclrResource;
 import dev.nuclr.plugin.core.assimp.AssimpModelReader;
+import dev.nuclr.plugin.core.assimp.LoadProgress;
 import dev.nuclr.plugin.core.assimp.model.ModelData;
 
 /**
@@ -100,6 +101,34 @@ class BlenderConversionTest {
                 "unexpected source note: " + data.stats.getSourceNote());
         assertTrue(progress.stream().anyMatch(message -> message.contains("Blender")),
                 "the conversion reported no progress: " + progress);
+    }
+
+    @Test
+    @DisplayName("the reader brackets every conversion, failed ones included, with start and finish")
+    void readerBracketsTheConversion() throws Exception {
+        Path good = fixture("bracketed.blend");
+        Path bad = fixtures.resolve("bracketed-garbage.blend");
+        Files.writeString(bad, "this is not a blend file");
+
+        for (Path source : List.of(good, bad)) {
+            List<String> events = new ArrayList<>();
+            AssimpModelReader.read(resource(source), new AtomicBoolean(), new LoadProgress() {
+                @Override
+                public void step(String message) {
+                }
+
+                @Override
+                public void conversionStarted() {
+                    events.add("started");
+                }
+
+                @Override
+                public void conversionFinished() {
+                    events.add("finished");
+                }
+            });
+            assertEquals(List.of("started", "finished"), events, "for " + source.getFileName());
+        }
     }
 
     @Test
