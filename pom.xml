@@ -13,7 +13,8 @@
 	<name>Nuclr Quick View - 3D</name>
 
 	<properties>
-		<platform.sdk.version>6.0.0</platform.sdk.version>
+		<platform.sdk.version>6.1.0</platform.sdk.version>
+		<platform.sdk.min.version>6.0.0</platform.sdk.min.version>
 		<!-- Sources carry box-drawing characters in comments and ellipses in UI
 		     strings; without this javac and the resource filter fall back to the
 		     platform encoding, which mangles them on a non-UTF-8 machine. -->
