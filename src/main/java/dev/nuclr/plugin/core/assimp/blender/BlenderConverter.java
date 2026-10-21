@@ -1,5 +1,7 @@
 package dev.nuclr.plugin.core.assimp.blender;
 
+import static dev.nuclr.plugin.core.assimp.Messages.tr;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -61,10 +63,10 @@ final class BlenderConverter {
                 ProcessRunner.run(command, destination.getParent(), timeout, cancelled);
 
         switch (outcome.status()) {
-            case START_FAILED -> throw new BlenderException("Could not start Blender: " + outcome.failure());
-            case CANCELLED -> throw new BlenderException("Conversion cancelled.");
+            case START_FAILED -> throw new BlenderException(tr("blender.start.failed", outcome.failure()));
+            case CANCELLED -> throw new BlenderException(tr("blender.cancelled"));
             case TIMED_OUT -> throw new BlenderException(
-                    "Blender did not finish within " + timeout.toSeconds() + " s.");
+                    tr("blender.timeout", String.valueOf(timeout.toSeconds())));
             case COMPLETED -> { /* exit code and markers are checked below */ }
         }
 
@@ -75,10 +77,10 @@ final class BlenderConverter {
 
         try {
             if (!Files.isRegularFile(destination) || Files.size(destination) == 0) {
-                throw new BlenderException("Blender reported success but wrote no data.");
+                throw new BlenderException(tr("blender.no.data"));
             }
         } catch (IOException e) {
-            throw new BlenderException("Could not read the converted model: " + e.getMessage(), e);
+            throw new BlenderException(tr("blender.cannot.read.converted", e.getMessage()), e);
         }
     }
 
@@ -97,7 +99,7 @@ final class BlenderConverter {
             }
         }
         if (reported == null || reported.isBlank()) {
-            reported = "Blender exited with code " + exitCode + ".";
+            reported = tr("blender.exit.code", String.valueOf(exitCode));
         }
         return reported.length() > MAX_REPORTED_ERROR_CHARS
                 ? reported.substring(0, MAX_REPORTED_ERROR_CHARS) + "…"

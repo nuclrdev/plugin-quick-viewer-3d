@@ -1,5 +1,7 @@
 package dev.nuclr.plugin.core.assimp;
 
+import static dev.nuclr.plugin.core.assimp.Messages.tr;
+
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
@@ -145,9 +147,8 @@ public final class AssimpModelReader {
 
         long sizeBytes = item.getLength();
         if (sizeBytes > MAX_FILE_BYTES) {
-            return fail(String.format(
-                    "File too large (%.1f MB); limit is 250 MB.",
-                    sizeBytes / 1_048_576.0), stats);
+            return fail(tr("reader.too.large",
+                    String.format("%.1f", sizeBytes / 1_048_576.0)), stats);
         }
 
         // The native importer opens a path, not a stream, so a resource with no local file
@@ -159,9 +160,7 @@ public final class AssimpModelReader {
             if (modelFile == null) {
                 staged = stage(item, cancelled);
                 modelFile = staged;
-                stats.getWarnings().add(
-                        "Textures stored beside the model were not loaded: this model has no local "
-                        + "folder to resolve them against. Embedded textures are unaffected.");
+                stats.getWarnings().add(tr("reader.no.local.textures"));
             }
             String extension = extensionOf(item);
             if (BlenderBridge.handles(extension)) {
@@ -171,12 +170,12 @@ public final class AssimpModelReader {
             return importModel(modelFile, stats, cancelled);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return fail("Model loading cancelled.", stats);
+            return fail(tr("reader.cancelled"), stats);
         } catch (BlenderException e) {
             // Already phrased for the panel; a generic prefix would only bury it.
             return fail(e.getMessage(), stats);
         } catch (Exception e) {
-            return fail("Could not read the model: " + e.getMessage(), stats);
+            return fail(tr("reader.cannot.read", e.getMessage()), stats);
         } finally {
             deleteQuietly(staged);
         }
@@ -192,7 +191,7 @@ public final class AssimpModelReader {
                                            ModelStats stats, LoadProgress progress,
                                            AtomicBoolean cancelled) throws BlenderException {
 
-        progress.step("Converting with Blender…");
+        progress.step(tr("blender.converting"));
         progress.conversionStarted();
         BlenderBridge.Conversion conversion;
         try {
@@ -201,9 +200,9 @@ public final class AssimpModelReader {
             progress.conversionFinished();
         }
 
-        stats.setSourceNote("." + extension + " → glTF, Blender " + conversion.blenderVersion()
-                + (conversion.cached() ? " (cached)" : ""));
-        progress.step("Reading converted model…");
+        stats.setSourceNote(tr("reader.source.note", extension, conversion.blenderVersion())
+                + (conversion.cached() ? " " + tr("reader.source.cached") : ""));
+        progress.step(tr("reader.reading.converted"));
         return conversion.glb();
     }
 
@@ -220,8 +219,8 @@ public final class AssimpModelReader {
 
         if (scene == null) {
             String err = Assimp.aiGetErrorString();
-            return fail("Assimp import failed: " +
-                    (err != null && !err.isBlank() ? err : "unknown error"), stats);
+            return fail(tr("reader.assimp.failed",
+                    err != null && !err.isBlank() ? err : tr("reader.unknown.error")), stats);
         }
 
         try {
@@ -310,9 +309,7 @@ public final class AssimpModelReader {
 
         boolean skipBBox = meshCount > MAX_MESH_COUNT;
         if (skipBBox) {
-            stats.getWarnings().add(String.format(
-                    "Mesh count (%,d) exceeds limit (%,d); bounding box and 3D view skipped.",
-                    meshCount, MAX_MESH_COUNT));
+            stats.getWarnings().add(tr("reader.mesh.limit", meshCount, MAX_MESH_COUNT));
         }
 
         // ── Pre-compute material → diffuse texture path ───────────────────────
@@ -333,7 +330,7 @@ public final class AssimpModelReader {
         if (meshBuf != null) {
             for (int i = 0; i < meshCount; i++) {
                 if (cancelled.get()) {
-                    return fail("Cancelled", stats);
+                    return fail(tr("reader.cancelled.short"), stats);
                 }
 
                 AIMesh aiMesh = AIMesh.create(meshBuf.get(i));
@@ -354,18 +351,12 @@ public final class AssimpModelReader {
                 if (vertexLimitHit || indexLimitHit) continue;
                 if (totalVertices > MAX_VERTICES) {
                     vertexLimitHit = true;
-                    stats.getWarnings().add(String.format(
-                            "Total vertex count (%,d) exceeds limit (%,d). "
-                            + "3D view is limited to meshes before this point.",
-                            totalVertices, MAX_VERTICES));
+                    stats.getWarnings().add(tr("reader.vertex.limit", totalVertices, MAX_VERTICES));
                     continue;
                 }
                 if (totalIndices > MAX_INDICES) {
                     indexLimitHit = true;
-                    stats.getWarnings().add(String.format(
-                            "Total index count (%,d) exceeds limit (%,d). "
-                            + "3D view is limited to meshes before this point.",
-                            totalIndices, MAX_INDICES));
+                    stats.getWarnings().add(tr("reader.index.limit", totalIndices, MAX_INDICES));
                     continue;
                 }
 

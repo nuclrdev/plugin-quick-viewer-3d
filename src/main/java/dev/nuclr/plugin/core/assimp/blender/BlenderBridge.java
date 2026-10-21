@@ -1,5 +1,7 @@
 package dev.nuclr.plugin.core.assimp.blender;
 
+import static dev.nuclr.plugin.core.assimp.Messages.tr;
+
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -35,9 +37,6 @@ public final class BlenderBridge {
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(180);
     private static final int MAX_TIMEOUT_SECONDS = 1800;
 
-    private static final String NOT_FOUND =
-            "Blender was not found. Install Blender " + BlenderLocator.MINIMUM_MAJOR_VERSION
-            + ".0 or newer to preview this format, or set 'blenderExecutable' in the plugin settings.";
 
     private static volatile Duration timeout = DEFAULT_TIMEOUT;
 
@@ -118,11 +117,12 @@ public final class BlenderBridge {
 
         String mode = BlenderConverter.modeFor(extension);
         if (mode == null) {
-            throw new BlenderException("Blender cannot import '." + extension + "'.");
+            throw new BlenderException(tr("blender.cannot.import", extension));
         }
 
         BlenderInstall install = BlenderLocator.locate()
-                .orElseThrow(() -> new BlenderException(NOT_FOUND));
+                .orElseThrow(() -> new BlenderException(tr("blender.not.found",
+                        String.valueOf(BlenderLocator.MINIMUM_MAJOR_VERSION))));
 
         try {
             Path script = BlenderScript.path();
@@ -148,7 +148,7 @@ public final class BlenderBridge {
             return new Conversion(entry, install.version(), false);
 
         } catch (IOException e) {
-            throw new BlenderException("Could not write to the conversion cache: " + e.getMessage(), e);
+            throw new BlenderException(tr("blender.cache.failed", e.getMessage()), e);
         }
     }
 }

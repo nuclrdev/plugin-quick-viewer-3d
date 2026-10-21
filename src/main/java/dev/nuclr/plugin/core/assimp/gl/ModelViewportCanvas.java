@@ -1,5 +1,7 @@
 package dev.nuclr.plugin.core.assimp.gl;
 
+import static dev.nuclr.plugin.core.assimp.Messages.tr;
+
 import java.awt.Graphics;
 import java.awt.GraphicsConfiguration;
 import java.awt.geom.AffineTransform;
@@ -318,10 +320,7 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
         if (!glReady) {
             int n = noGlReadyTicks.incrementAndGet();
             if (n == NO_GL_READY_TIMEOUT) {
-                String msg = "3D preview unavailable: OpenGL 3.3 context could "
-                    + "not be created. Check your graphics drivers or run with "
-                    + "-Dorg.lwjgl.util.Debug=true for details.";
-                giveUp(msg);
+                giveUp("OpenGL 3.3 context could not be created", tr("canvas.no.context"));
             }
         } else {
             noGlReadyTicks.set(0);
@@ -350,16 +349,16 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
         log.debug("render() threw again ({}): {}", renderFailures, ex.getMessage());
 
         if (renderFailures >= RENDER_FAILURE_LIMIT) {
-            giveUp("3D preview stopped: the viewport could not be drawn to ("
-                    + ex.getMessage() + ").");
+            giveUp("Viewport could not be drawn to (" + ex.getMessage() + ")",
+                    tr("canvas.render.stopped", ex.getMessage()));
         }
     }
 
     /** Stop rendering for good and hand the reason to the host panel. */
-    private void giveUp(String message) {
+    private void giveUp(String reason, String message) {
         renderGaveUp = true;
         renderTimer.stop();
-        log.warn(message);
+        log.warn("3D preview gave up: {}", reason);
         SwingUtilities.invokeLater(() -> onGlError.accept(message));
     }
 
@@ -387,8 +386,8 @@ public final class ModelViewportCanvas extends AWTGLCanvas {
                      GL11.glGetString(GL11.GL_RENDERER),
                      GL11.glGetString(GL11.GL_VERSION));
         } catch (Throwable t) {
-            String msg = "OpenGL init failed: " + t.getMessage();
-            log.warn(msg, t);
+            log.warn("OpenGL init failed: {}", t.getMessage(), t);
+            String msg = tr("canvas.init.failed", t.getMessage());
             SwingUtilities.invokeLater(() -> onGlError.accept(msg));
         }
     }

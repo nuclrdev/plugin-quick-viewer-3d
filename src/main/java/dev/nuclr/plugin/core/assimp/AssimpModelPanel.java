@@ -1,5 +1,7 @@
 package dev.nuclr.plugin.core.assimp;
 
+import static dev.nuclr.plugin.core.assimp.Messages.tr;
+
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -121,11 +123,11 @@ public class AssimpModelPanel extends JPanel {
         nameLabel.setFont(nameLabel.getFont().deriveFont(Font.BOLD, 13f));
         nameLabel.setBorder(BorderFactory.createEmptyBorder(6, 8, 2, 8));
 
-        viewportStatusLabel = new JLabel("Ready");
+        viewportStatusLabel = new JLabel(tr("panel.ready"));
         viewportStatusLabel.setFont(viewportStatusLabel.getFont().deriveFont(11f));
         viewportStatusLabel.setBorder(BorderFactory.createEmptyBorder(0, 8, 6, 8));
 
-        statsArea = new JTextArea("No file selected.");
+        statsArea = new JTextArea(tr("panel.no.file"));
         statsArea.setEditable(false);
         statsArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 11));
         statsArea.setOpaque(false);
@@ -142,10 +144,7 @@ public class AssimpModelPanel extends JPanel {
         // Keyboard-hints label at the bottom of the sidebar
         JLabel hintsLabel = new JLabel(
                 "<html><font color='#888888' size='2'>"
-                + "W wireframe &nbsp;G grid &nbsp;X axes<br>"
-                + "L lit &nbsp;B bbox &nbsp;F frame &nbsp;R reset<br>"
-                + "LMB rotate &nbsp;Shift+LMB / MMB pan<br>"
-                + "Scroll wheel zoom</font></html>");
+                + tr("panel.hints") + "</font></html>");
         hintsLabel.setBorder(BorderFactory.createEmptyBorder(4, 8, 6, 8));
         hintsLabel.setFocusable(false);
 
@@ -176,7 +175,7 @@ public class AssimpModelPanel extends JPanel {
         centreHolder = new JPanel(new BorderLayout());
         centreHolder.setBackground(new Color(33, 33, 35));
 
-        placeholderLabel = new JLabel("No file selected.",
+        placeholderLabel = new JLabel(tr("panel.no.file"),
                 SwingConstants.CENTER);
         placeholderLabel.setForeground(new Color(160, 160, 160));
         centreHolder.add(placeholderLabel, BorderLayout.CENTER);
@@ -203,9 +202,9 @@ public class AssimpModelPanel extends JPanel {
             conversionPopup.hide();
             ensureViewport();
             nameLabel.setText(item.getName());
-            viewportStatusLabel.setText("Loading\u2026");
-            statusBar.setText("Parsing model\u2026");
-            statsArea.setText("Parsing model data\u2026");
+            viewportStatusLabel.setText(tr("panel.loading"));
+            statusBar.setText(tr("panel.parsing"));
+            statsArea.setText(tr("panel.parsing.data"));
         });
 
         Thread.ofVirtual()
@@ -215,15 +214,15 @@ public class AssimpModelPanel extends JPanel {
                   try {
                       if (!checkAssimp()) {
                           ModelStats s = new ModelStats();
-                          s.getWarnings().add("Assimp native library is not available.");
-                          data = new ModelData("Assimp unavailable.", s);
+                          s.getWarnings().add(tr("panel.assimp.missing"));
+                          data = new ModelData(tr("panel.assimp.unavailable"), s);
                       } else {
                           data = AssimpModelReader.read(item, cancelled, progressFor(item, gen, cancelled));
                       }
                   } catch (Exception e) {
                       log.warn("Unexpected error parsing '{}'", item.getName(), e);
                       ModelStats s = new ModelStats();
-                      s.getWarnings().add("Unexpected error: " + e.getMessage());
+                      s.getWarnings().add(tr("panel.unexpected.error", e.getMessage()));
                       data = new ModelData(e.getMessage(), s);
                   }
 
@@ -287,9 +286,9 @@ public class AssimpModelPanel extends JPanel {
         SwingUtilities.invokeLater(() -> {
             conversionPopup.hide();
             nameLabel.setText(" ");
-            viewportStatusLabel.setText("Ready");
+            viewportStatusLabel.setText(tr("panel.ready"));
             statusBar.setText(" ");
-            statsArea.setText("No file selected.");
+            statsArea.setText(tr("panel.no.file"));
             if (viewport != null) viewport.setModelData(null);
         });
     }
@@ -346,7 +345,7 @@ public class AssimpModelPanel extends JPanel {
             centreHolder.revalidate();
             centreHolder.repaint();
         } catch (UnsatisfiedLinkError | Exception e) {
-            onGlError("3D preview unavailable (OpenGL init failed): " + e.getMessage());
+            onGlError(tr("panel.gl.init.failed", e.getMessage()));
         }
     }
 
@@ -363,7 +362,7 @@ public class AssimpModelPanel extends JPanel {
 
         glFallbackLabel = new JLabel(
                 "<html><center><font color='#E07070'>"
-                + "3D preview unavailable<br><br>"
+                + escapeHtml(tr("panel.gl.unavailable")) + "<br><br>"
                 + "<font color='#AAAAAA'><small>" + escapeHtml(message) + "</small></font>"
                 + "</font></center></html>",
                 SwingConstants.CENTER);
@@ -373,7 +372,7 @@ public class AssimpModelPanel extends JPanel {
         centreHolder.revalidate();
         centreHolder.repaint();
 
-        statusBar.setText("OpenGL unavailable — metadata only.");
+        statusBar.setText(tr("panel.gl.metadata.only"));
     }
 
     private void showPlaceholder() {
@@ -385,10 +384,10 @@ public class AssimpModelPanel extends JPanel {
         conversionPopup.hide();
         boolean ok = !data.hasError();
 
-        viewportStatusLabel.setText(ok ? "Ready" : "Failed");
+        viewportStatusLabel.setText(ok ? tr("panel.ready") : tr("panel.failed"));
         statusBar.setText(ok
-                ? (data.meshes.isEmpty() ? "Metadata only (model exceeds size limit)." : "Ready")
-                : "Error: " + data.error);
+                ? (data.meshes.isEmpty() ? tr("panel.metadata.only.limit") : tr("panel.ready"))
+                : tr("panel.error", data.error));
 
         statsArea.setText(formatStats(item, data.stats));
         statsArea.setCaretPosition(0);
@@ -405,50 +404,50 @@ public class AssimpModelPanel extends JPanel {
         StringBuilder sb = new StringBuilder(512);
         String sep = "\u2500".repeat(32) + "\n";
 
-        sb.append("Model Statistics\n").append(sep);
-        row(sb, "Meshes",    nf.format(stats.getMeshCount()));
-        row(sb, "Vertices",  nf.format(stats.getTotalVertices()));
-        row(sb, "Faces",     nf.format(stats.getTotalFaces()));
-        row(sb, "Materials", nf.format(stats.getMaterialCount()));
-        row(sb, "File Size", formatSize(item.getLength()));
+        sb.append(tr("stats.title")).append('\n').append(sep);
+        row(sb, tr("stats.meshes"),    nf.format(stats.getMeshCount()));
+        row(sb, tr("stats.vertices"),  nf.format(stats.getTotalVertices()));
+        row(sb, tr("stats.faces"),     nf.format(stats.getTotalFaces()));
+        row(sb, tr("stats.materials"), nf.format(stats.getMaterialCount()));
+        row(sb, tr("stats.file.size"), formatSize(item.getLength()));
 
         Path p = item.getPath();
         if (p != null) {
             try {
                 FileTime ft = Files.getLastModifiedTime(p);
-                row(sb, "Modified", TS_FMT.format(ft.toInstant()));
+                row(sb, tr("stats.modified"), TS_FMT.format(ft.toInstant()));
             } catch (Exception ignored) { /* best-effort */ }
         }
 
         if (stats.getSourceNote() != null) {
-            sb.append("\nSource\n").append(sep);
+            sb.append('\n').append(tr("stats.source")).append('\n').append(sep);
             sb.append("  ").append(stats.getSourceNote()).append('\n');
         }
 
         if (stats.isHasBoundingBox()) {
-            sb.append("\nBounding Box\n").append(sep);
-            sb.append(String.format("  Min  %9.3f %9.3f %9.3f%n",
+            sb.append('\n').append(tr("stats.bbox")).append('\n').append(sep);
+            sb.append(String.format("  %-5s%9.3f %9.3f %9.3f%n", tr("stats.min"),
                     stats.getMinX(), stats.getMinY(), stats.getMinZ()));
-            sb.append(String.format("  Max  %9.3f %9.3f %9.3f%n",
+            sb.append(String.format("  %-5s%9.3f %9.3f %9.3f%n", tr("stats.max"),
                     stats.getMaxX(), stats.getMaxY(), stats.getMaxZ()));
-            sb.append(String.format("  Size %9.3f %9.3f %9.3f%n",
+            sb.append(String.format("  %-5s%9.3f %9.3f %9.3f%n", tr("stats.size"),
                     stats.getMaxX() - stats.getMinX(),
                     stats.getMaxY() - stats.getMinY(),
                     stats.getMaxZ() - stats.getMinZ()));
-            sb.append(String.format("  Radius  %.4f%n", stats.getBoundingRadius()));
+            sb.append(String.format("  %s  %.4f%n", tr("stats.radius"), stats.getBoundingRadius()));
         }
 
         List<String> textures = stats.getTextures();
-        sb.append("\nTextures (").append(textures.size()).append(")\n").append(sep);
+        sb.append('\n').append(tr("stats.textures", String.valueOf(textures.size()))).append('\n').append(sep);
         if (textures.isEmpty()) {
-            sb.append("  (none)\n");
+            sb.append("  ").append(tr("stats.none")).append('\n');
         } else {
             for (String t : textures) sb.append("  ").append(t).append('\n');
         }
 
         List<String> warnings = stats.getWarnings();
         if (!warnings.isEmpty()) {
-            sb.append("\nWarnings\n").append(sep);
+            sb.append('\n').append(tr("stats.warnings")).append('\n').append(sep);
             for (String w : warnings) sb.append("  \u26A0 ").append(w).append('\n');
         }
 
@@ -460,11 +459,11 @@ public class AssimpModelPanel extends JPanel {
     }
 
     private static String formatSize(long bytes) {
-        if (bytes < 0)              return "unknown";
-        if (bytes < 1_024)          return bytes + " B";
-        if (bytes < 1_048_576)      return String.format("%.1f KB", bytes / 1_024.0);
-        if (bytes < 1_073_741_824L) return String.format("%.2f MB", bytes / 1_048_576.0);
-        return                             String.format("%.2f GB", bytes / 1_073_741_824.0);
+        if (bytes < 0)              return tr("size.unknown");
+        if (bytes < 1_024)          return tr("size.bytes", String.valueOf(bytes));
+        if (bytes < 1_048_576)      return tr("size.kb", String.format("%.1f", bytes / 1_024.0));
+        if (bytes < 1_073_741_824L) return tr("size.mb", String.format("%.2f", bytes / 1_048_576.0));
+        return                             tr("size.gb", String.format("%.2f", bytes / 1_073_741_824.0));
     }
 
     private static String escapeHtml(String s) {

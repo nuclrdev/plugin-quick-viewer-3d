@@ -1,5 +1,7 @@
 package dev.nuclr.plugin.core.assimp;
 
+import static dev.nuclr.plugin.core.assimp.Messages.tr;
+
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -136,7 +138,7 @@ final class ConversionPopup {
         popup.setFocusableWindowState(false);
         popup.setAlwaysOnTop(false);
 
-        JLabel title = new JLabel("Converting with Blender…");
+        JLabel title = new JLabel(tr("blender.converting"));
         title.setFont(title.getFont().deriveFont(Font.BOLD));
 
         fileLabel = new JLabel(" ");
@@ -147,9 +149,9 @@ final class ConversionPopup {
         bar.setIndeterminate(true);
         bar.setPreferredSize(new Dimension(280, bar.getPreferredSize().height));
 
-        JButton hideButton = new JButton("Hide");
+        JButton hideButton = new JButton(tr("popup.hide"));
         hideButton.setFocusable(false);
-        hideButton.setToolTipText("Hide this notice (Esc). The conversion carries on.");
+        hideButton.setToolTipText(tr("popup.hide.tooltip"));
         hideButton.addActionListener(e -> hide());
 
         JPanel text = new JPanel();
@@ -183,6 +185,6 @@ final class ConversionPopup {
 
     private void updateElapsed() {
         long seconds = (System.nanoTime() - startedAtNanos) / 1_000_000_000L;
-        elapsedLabel.setText(seconds < 1 ? "Starting…" : seconds + " s elapsed — Esc to hide");
+        elapsedLabel.setText(seconds < 1 ? tr("popup.starting") : tr("popup.elapsed", String.valueOf(seconds)));
     }
 }
